@@ -132,6 +132,19 @@ class Sitemap:
                 'changefreq': self.__get('changefreq', item),
                 'priority': str(priority if priority is not None else ''),
             }
+            # enrich `url_info` dict with Google's `hreflang` xml attribute/directive.
+            if getattr(self, 'href_lang', False):
+                links = []
+                current_lang_code = translation.get_language()
+                for lang_code, lang_name in settings.LANGUAGES:
+                    translation.activate(lang_code)
+                    href = "%s://%s%s" % (protocol, domain, self.__get('location', item))
+                    links.append({
+                        'lang_code': lang_code,
+                        'href': href
+                    })
+                translation.activate(current_lang_code)
+                url_info["xhtml_links"] = links
             urls.append(url_info)
         if all_items_lastmod and latest_lastmod:
             self.latest_lastmod = latest_lastmod

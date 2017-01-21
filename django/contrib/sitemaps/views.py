@@ -59,11 +59,14 @@ def sitemap(request, sitemaps, section=None,
 
     lastmod = None
     all_sites_lastmod = True
+    href_lang = False
     urls = []
     for site in maps:
         try:
             if callable(site):
                 site = site()
+            if not href_lang:
+                href_lang = getattr(site, 'href_lang', href_lang)
             urls.extend(site.get_urls(page=page, site=req_site,
                                       protocol=req_protocol))
             if all_sites_lastmod:
@@ -80,7 +83,7 @@ def sitemap(request, sitemaps, section=None,
             raise Http404("Page %s empty" % page)
         except PageNotAnInteger:
             raise Http404("No page '%s'" % page)
-    response = TemplateResponse(request, template_name, {'urlset': urls},
+    response = TemplateResponse(request, template_name, {'urlset': urls, 'href_lang': href_lang},
                                 content_type=content_type)
     if all_sites_lastmod and lastmod is not None:
         # if lastmod is defined for all sites, set header so as
