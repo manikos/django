@@ -22,7 +22,12 @@ class Author(models.Model):
 
 class ArticleManager(models.Manager):
     def get_queryset(self):
-        return super(ArticleManager, self).get_queryset().filter(authors__name__icontains='sir')
+        return super().get_queryset().filter(authors__name__icontains='sir')
+
+
+class AttributeErrorManager(models.Manager):
+    def get_queryset(self):
+        raise AttributeError('AttributeErrorManager')
 
 
 class Article(models.Model):
@@ -30,6 +35,7 @@ class Article(models.Model):
     title = models.CharField(max_length=50)
     objects = models.Manager()
     by_a_sir = ArticleManager()
+    attribute_error_objects = AttributeErrorManager()
 
     def __str__(self):
         return self.title

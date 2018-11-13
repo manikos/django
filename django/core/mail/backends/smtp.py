@@ -18,7 +18,7 @@ class EmailBackend(BaseEmailBackend):
                  use_tls=None, fail_silently=False, use_ssl=None, timeout=None,
                  ssl_keyfile=None, ssl_certfile=None,
                  **kwargs):
-        super(EmailBackend, self).__init__(fail_silently=fail_silently)
+        super().__init__(fail_silently=fail_silently)
         self.host = host or settings.EMAIL_HOST
         self.port = port or settings.EMAIL_PORT
         self.username = settings.EMAIL_HOST_USER if username is None else username
@@ -74,7 +74,7 @@ class EmailBackend(BaseEmailBackend):
                 raise
 
     def close(self):
-        """Closes the connection to the email server."""
+        """Close the connection to the email server."""
         if self.connection is None:
             return
         try:
@@ -94,7 +94,7 @@ class EmailBackend(BaseEmailBackend):
 
     def send_messages(self, email_messages):
         """
-        Sends one or more EmailMessage objects and returns the number of email
+        Send one or more EmailMessage objects and return the number of email
         messages sent.
         """
         if not email_messages:

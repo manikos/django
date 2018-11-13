@@ -13,7 +13,6 @@ Both styles are demonstrated here.
 """
 from django.db import models
 
-
 #
 # Abstract base classes
 #
@@ -160,7 +159,7 @@ class NamedURL(models.Model):
 class Mixin:
     def __init__(self):
         self.other_attr = 1
-        super(Mixin, self).__init__()
+        super().__init__()
 
 
 class MixinModel(models.Model, Mixin):
@@ -179,6 +178,7 @@ class GrandParent(models.Model):
     first_name = models.CharField(max_length=80)
     last_name = models.CharField(max_length=80)
     email = models.EmailField(unique=True)
+    place = models.ForeignKey(Place, models.CASCADE, null=True, related_name='+')
 
     class Meta:
         unique_together = ('first_name', 'last_name')

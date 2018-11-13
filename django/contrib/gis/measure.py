@@ -159,18 +159,12 @@ class MeasureBase:
         else:
             raise TypeError('%(class)s must be divided with number or %(class)s' % {"class": pretty_name(self)})
 
-    def __div__(self, other):   # Python 2 compatibility
-        return type(self).__truediv__(self, other)
-
     def __itruediv__(self, other):
         if isinstance(other, NUMERIC_TYPES):
             self.standard /= float(other)
             return self
         else:
             raise TypeError('%(class)s must be divided with number' % {"class": pretty_name(self)})
-
-    def __idiv__(self, other):  # Python 2 compatibility
-        return type(self).__itruediv__(self, other)
 
     def __bool__(self):
         return bool(self.standard)
@@ -208,9 +202,9 @@ class MeasureBase:
     @classmethod
     def unit_attname(cls, unit_str):
         """
-        Retrieves the unit attribute name for the given unit string.
-        For example, if the given unit string is 'metre', 'm' would be returned.
-        An exception is raised if an attribute cannot be found.
+        Retrieve the unit attribute name for the given unit string.
+        For example, if the given unit string is 'metre', return 'm'.
+        Raise an exception if an attribute cannot be found.
         """
         lower = unit_str.lower()
         if unit_str in cls.UNITS:
@@ -332,9 +326,6 @@ class Area(MeasureBase):
             )
         else:
             raise TypeError('%(class)s must be divided by a number' % {"class": pretty_name(self)})
-
-    def __div__(self, other):  # Python 2 compatibility
-        return type(self).__truediv__(self, other)
 
 
 # Shortcuts

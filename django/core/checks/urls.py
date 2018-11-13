@@ -50,17 +50,21 @@ def check_url_namespaces_unique(app_configs, **kwargs):
     return errors
 
 
-def _load_all_namespaces(resolver):
+def _load_all_namespaces(resolver, parents=()):
     """
     Recursively load all namespaces from URL patterns.
     """
     url_patterns = getattr(resolver, 'url_patterns', [])
     namespaces = [
-        url.namespace for url in url_patterns
+        ':'.join(parents + (url.namespace,)) for url in url_patterns
         if getattr(url, 'namespace', None) is not None
     ]
     for pattern in url_patterns:
-        namespaces.extend(_load_all_namespaces(pattern))
+        namespace = getattr(pattern, 'namespace', None)
+        current = parents
+        if namespace is not None:
+            current += (namespace,)
+        namespaces.extend(_load_all_namespaces(pattern, current))
     return namespaces
 
 
@@ -77,13 +81,13 @@ def get_warning_for_invalid_pattern(pattern):
             "have a prefix string as the first element.".format(pattern)
         )
     elif isinstance(pattern, tuple):
-        hint = "Try using url() instead of a tuple."
+        hint = "Try using path() instead of a tuple."
     else:
         hint = None
 
     return [Error(
         "Your URL pattern {!r} is invalid. Ensure that urlpatterns is a list "
-        "of url() instances.".format(pattern),
+        "of path() and/or re_path() instances.".format(pattern),
         hint=hint,
         id="urls.E004",
     )]

@@ -1,5 +1,5 @@
 from django.db import models
-from django.utils.translation import ugettext_lazy as _
+from django.utils.translation import gettext_lazy as _
 
 
 class Site(models.Model):
@@ -17,6 +17,9 @@ class Article(models.Model):
     title = models.CharField(max_length=100)
     hist = models.CharField(max_length=100, verbose_name=_("History"))
     created = models.DateTimeField(null=True)
+
+    def __str__(self):
+        return self.title
 
     def test_from_model(self):
         return "nothing"

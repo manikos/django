@@ -56,9 +56,8 @@ class Engine:
     @functools.lru_cache()
     def get_default():
         """
-        When only one DjangoTemplates backend is configured, returns it.
-
-        Raises ImproperlyConfigured otherwise.
+        Return the first DjangoTemplates backend that's configured, or raise
+        ImproperlyConfigured if none are configured.
 
         This is required for preserving historical APIs that rely on a
         globally available, implicitly configured engine such as:
@@ -74,18 +73,10 @@ class Engine:
         # local imports are required to avoid import loops.
         from django.template import engines
         from django.template.backends.django import DjangoTemplates
-        django_engines = [engine for engine in engines.all()
-                          if isinstance(engine, DjangoTemplates)]
-        if len(django_engines) == 1:
-            # Unwrap the Engine instance inside DjangoTemplates
-            return django_engines[0].engine
-        elif len(django_engines) == 0:
-            raise ImproperlyConfigured(
-                "No DjangoTemplates backend is configured.")
-        else:
-            raise ImproperlyConfigured(
-                "Several DjangoTemplates backends are configured. "
-                "You must select one explicitly.")
+        for engine in engines.all():
+            if isinstance(engine, DjangoTemplates):
+                return engine.engine
+        raise ImproperlyConfigured('No DjangoTemplates backend is configured.')
 
     @cached_property
     def template_context_processors(self):
@@ -116,8 +107,7 @@ class Engine:
 
     def find_template_loader(self, loader):
         if isinstance(loader, (tuple, list)):
-            args = list(loader[1:])
-            loader = loader[0]
+            loader, *args = loader
         else:
             args = []
 
@@ -140,14 +130,14 @@ class Engine:
 
     def from_string(self, template_code):
         """
-        Returns a compiled Template object for the given template code,
+        Return a compiled Template object for the given template code,
         handling template inheritance recursively.
         """
         return Template(template_code, engine=self)
 
     def get_template(self, template_name):
         """
-        Returns a compiled Template object for the given template name,
+        Return a compiled Template object for the given template name,
         handling template inheritance recursively.
         """
         template, origin = self.find_template(template_name)
@@ -174,7 +164,7 @@ class Engine:
 
     def select_template(self, template_name_list):
         """
-        Given a list of template names, returns the first that can be loaded.
+        Given a list of template names, return the first that can be loaded.
         """
         if not template_name_list:
             raise TemplateDoesNotExist("No template names provided")

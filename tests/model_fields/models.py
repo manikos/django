@@ -30,7 +30,7 @@ def get_foo():
 
 class Bar(models.Model):
     b = models.CharField(max_length=10)
-    a = models.ForeignKey(Foo, models.CASCADE, default=get_foo, related_name=b'bars')
+    a = models.ForeignKey(Foo, models.CASCADE, default=get_foo, related_name='bars')
 
 
 class Whiz(models.Model):
@@ -50,31 +50,16 @@ class Whiz(models.Model):
     c = models.IntegerField(choices=CHOICES, null=True)
 
 
-class Counter:
-    def __init__(self):
-        self.n = 1
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        if self.n > 5:
-            raise StopIteration
-        else:
-            self.n += 1
-            return (self.n, 'val-' + str(self.n))
-
-
 class WhizIter(models.Model):
-    c = models.IntegerField(choices=Counter(), null=True)
+    c = models.IntegerField(choices=iter(Whiz.CHOICES), null=True)
 
 
 class WhizIterEmpty(models.Model):
-    c = models.CharField(choices=(x for x in []), blank=True, max_length=1)
+    c = models.CharField(choices=iter(()), blank=True, max_length=1)
 
 
 class BigD(models.Model):
-    d = models.DecimalField(max_digits=38, decimal_places=30)
+    d = models.DecimalField(max_digits=32, decimal_places=30)
 
 
 class FloatModel(models.Model):
@@ -116,7 +101,8 @@ class Post(models.Model):
 
 
 class NullBooleanModel(models.Model):
-    nbfield = models.NullBooleanField()
+    nbfield = models.BooleanField(null=True, blank=True)
+    nbfield_old = models.NullBooleanField()
 
 
 class BooleanModel(models.Model):
@@ -229,11 +215,11 @@ if Image:
         """
         def __init__(self, *args, **kwargs):
             self.was_opened = False
-            super(TestImageFieldFile, self).__init__(*args, **kwargs)
+            super().__init__(*args, **kwargs)
 
         def open(self):
             self.was_opened = True
-            super(TestImageFieldFile, self).open()
+            super().open()
 
     class TestImageField(ImageField):
         attr_class = TestImageFieldFile
@@ -358,6 +344,10 @@ class AllFieldsModel(models.Model):
     content_type = models.ForeignKey(ContentType, models.CASCADE)
     gfk = GenericForeignKey()
     gr = GenericRelation(DataModel)
+
+
+class ManyToMany(models.Model):
+    m2m = models.ManyToManyField('self')
 
 
 ###############################################################################

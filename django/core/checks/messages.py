@@ -1,5 +1,3 @@
-from django.utils.encoding import force_text
-
 # Levels
 DEBUG = 10
 INFO = 20
@@ -35,7 +33,7 @@ class CheckMessage:
             # method doesn't return "applabel.modellabel" and cannot be changed.
             obj = self.obj._meta.label
         else:
-            obj = force_text(self.obj)
+            obj = str(self.obj)
         id = "(%s) " % self.id if self.id else ""
         hint = "\n\tHINT: %s" % self.hint if self.hint else ''
         return "%s: %s%s%s" % (obj, id, self.msg, hint)
@@ -54,24 +52,24 @@ class CheckMessage:
 
 class Debug(CheckMessage):
     def __init__(self, *args, **kwargs):
-        super(Debug, self).__init__(DEBUG, *args, **kwargs)
+        super().__init__(DEBUG, *args, **kwargs)
 
 
 class Info(CheckMessage):
     def __init__(self, *args, **kwargs):
-        super(Info, self).__init__(INFO, *args, **kwargs)
+        super().__init__(INFO, *args, **kwargs)
 
 
 class Warning(CheckMessage):
     def __init__(self, *args, **kwargs):
-        super(Warning, self).__init__(WARNING, *args, **kwargs)
+        super().__init__(WARNING, *args, **kwargs)
 
 
 class Error(CheckMessage):
     def __init__(self, *args, **kwargs):
-        super(Error, self).__init__(ERROR, *args, **kwargs)
+        super().__init__(ERROR, *args, **kwargs)
 
 
 class Critical(CheckMessage):
     def __init__(self, *args, **kwargs):
-        super(Critical, self).__init__(CRITICAL, *args, **kwargs)
+        super().__init__(CRITICAL, *args, **kwargs)

@@ -41,7 +41,7 @@ class DecoratedDispatchView(SimpleView):
 
     @decorator
     def dispatch(self, request, *args, **kwargs):
-        return super(DecoratedDispatchView, self).dispatch(request, *args, **kwargs)
+        return super().dispatch(request, *args, **kwargs)
 
 
 class AboutTemplateView(TemplateView):
@@ -136,9 +136,8 @@ class ViewTest(unittest.TestCase):
         """
         # Check each of the allowed method names
         for method in SimpleView.http_method_names:
-            kwargs = dict(((method, "value"),))
             with self.assertRaises(TypeError):
-                SimpleView.as_view(**kwargs)
+                SimpleView.as_view(**{method: 'value'})
 
         # Check the case view argument is ok if predefined on the class...
         CustomizableView.as_view(parameter="value")
@@ -274,7 +273,11 @@ class TemplateViewTest(SimpleTestCase):
         """
         A template view must provide a template name.
         """
-        with self.assertRaises(ImproperlyConfigured):
+        msg = (
+            "TemplateResponseMixin requires either a definition of "
+            "'template_name' or an implementation of 'get_template_names()'"
+        )
+        with self.assertRaisesMessage(ImproperlyConfigured, msg):
             self.client.get('/template/no_template/')
 
     @require_jinja2
@@ -344,6 +347,10 @@ class TemplateViewTest(SimpleTestCase):
         match = resolve('/template/login_required/')
         self.assertIs(match.func.view_class, TemplateView)
 
+    def test_extra_context(self):
+        response = self.client.get('/template/extra_context/')
+        self.assertEqual(response.context['title'], 'Title')
+
 
 @override_settings(ROOT_URLCONF='generic_views.urls')
 class RedirectViewTest(SimpleTestCase):
@@ -406,11 +413,6 @@ class RedirectViewTest(SimpleTestCase):
         response = RedirectView.as_view(pattern_name='artist_detail')(self.rf.get('/foo/'), 1)
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response['Location'], '/detail/artist/1/')
-
-    def test_wrong_named_url_pattern(self):
-        "A wrong pattern name returns 410 GONE"
-        response = RedirectView.as_view(pattern_name='wrong.pattern_name')(self.rf.get('/foo/'))
-        self.assertEqual(response.status_code, 410)
 
     def test_redirect_POST(self):
         "Default is a temporary redirect"

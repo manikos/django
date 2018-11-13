@@ -1,4 +1,3 @@
-import sys
 import threading
 import weakref
 
@@ -107,10 +106,7 @@ class Signal:
 
         with self.lock:
             self._clear_dead_receivers()
-            for r_key, _ in self.receivers:
-                if r_key == lookup_key:
-                    break
-            else:
+            if not any(r_key == lookup_key for r_key, _ in self.receivers):
                 self.receivers.append((lookup_key, receiver))
             self.sender_receivers_cache.clear()
 
@@ -119,7 +115,7 @@ class Signal:
         Disconnect receiver from sender for signal.
 
         If weak references are used, disconnect need not be called. The receiver
-        will be remove from dispatch automatically.
+        will be removed from dispatch automatically.
 
         Arguments:
 
@@ -169,7 +165,7 @@ class Signal:
             named
                 Named arguments which will be passed to receivers.
 
-        Returns a list of tuple pairs [(receiver, response), ... ].
+        Return a list of tuple pairs [(receiver, response), ... ].
         """
         if not self.receivers or self.sender_receivers_cache.get(sender) is NO_RECEIVERS:
             return []
@@ -186,7 +182,7 @@ class Signal:
         Arguments:
 
             sender
-                The sender of the signal. Can be any python object (normally one
+                The sender of the signal. Can be any Python object (normally one
                 registered with a connect if you actually want something to
                 occur).
 
@@ -195,13 +191,10 @@ class Signal:
                 arguments must be a subset of the argument names defined in
                 providing_args.
 
-        Return a list of tuple pairs [(receiver, response), ... ]. May raise
-        DispatcherKeyError.
+        Return a list of tuple pairs [(receiver, response), ... ].
 
         If any receiver raises an error (specifically any subclass of
-        Exception), the error instance is returned as the result for that
-        receiver. The traceback is always attached to the error at
-        ``__traceback__``.
+        Exception), return the error instance as the result for that receiver.
         """
         if not self.receivers or self.sender_receivers_cache.get(sender) is NO_RECEIVERS:
             return []
@@ -213,8 +206,6 @@ class Signal:
             try:
                 response = receiver(signal=self, sender=sender, **named)
             except Exception as err:
-                if not hasattr(err, '__traceback__'):
-                    err.__traceback__ = sys.exc_info()[2]
                 responses.append((receiver, err))
             else:
                 responses.append((receiver, response))
@@ -224,12 +215,10 @@ class Signal:
         # Note: caller is assumed to hold self.lock.
         if self._dead_receivers:
             self._dead_receivers = False
-            new_receivers = []
-            for r in self.receivers:
-                if isinstance(r[1], weakref.ReferenceType) and r[1]() is None:
-                    continue
-                new_receivers.append(r)
-            self.receivers = new_receivers
+            self.receivers = [
+                r for r in self.receivers
+                if not(isinstance(r[1], weakref.ReferenceType) and r[1]() is None)
+            ]
 
     def _live_receivers(self, sender):
         """

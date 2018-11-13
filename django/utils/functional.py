@@ -1,4 +1,5 @@
 import copy
+import itertools
 import operator
 from functools import total_ordering, wraps
 
@@ -8,7 +9,7 @@ from functools import total_ordering, wraps
 # CPython) is a type and its instances don't bind.
 def curry(_curried_func, *args, **kwargs):
     def _curried(*moreargs, **morekwargs):
-        return _curried_func(*(args + moreargs), **dict(kwargs, **morekwargs))
+        return _curried_func(*args, *moreargs, **{**kwargs, **morekwargs})
     return _curried
 
 
@@ -26,6 +27,11 @@ class cached_property:
         self.name = name or func.__name__
 
     def __get__(self, instance, cls=None):
+        """
+        Call the function and put the return value in instance.__dict__ so that
+        subsequent attribute access on the instance returns the cached value
+        instead of calling cached_property.__get__().
+        """
         if instance is None:
             return self
         res = instance.__dict__[self.name] = self.func(instance)
@@ -34,17 +40,16 @@ class cached_property:
 
 class Promise:
     """
-    This is just a base class for the proxy class created in
-    the closure of the lazy function. It can be used to recognize
-    promises in code.
+    Base class for the proxy class created in the closure of the lazy function.
+    It's used to recognize promises in code.
     """
     pass
 
 
 def lazy(func, *resultclasses):
     """
-    Turns any callable into a lazy evaluated callable. You need to give result
-    classes or types -- at least one is needed so that the automatic forcing of
+    Turn any callable into a lazy evaluated callable. result classes or types
+    is required -- at least one is needed so that the automatic forcing of
     the lazy evaluation code is triggered. Results are not memoized; the
     function is evaluated on every access.
     """
@@ -78,7 +83,7 @@ def lazy(func, *resultclasses):
         def __prepare_class__(cls):
             for resultclass in resultclasses:
                 for type_ in resultclass.mro():
-                    for method_name in type_.__dict__.keys():
+                    for method_name in type_.__dict__:
                         # All __promise__ return the same wrapper method, they
                         # look up the correct implementation when called.
                         if hasattr(cls, method_name):
@@ -111,7 +116,7 @@ def lazy(func, *resultclasses):
             return bytes(func(*self.__args, **self.__kw))
 
         def __bytes_cast_encoded(self):
-            return func(*self.__args, **self.__kw).encode('utf-8')
+            return func(*self.__args, **self.__kw).encode()
 
         def __cast(self):
             if self._delegate_bytes:
@@ -167,8 +172,7 @@ def lazystr(text):
     """
     Shortcut for the common case of a lazy callable that returns str.
     """
-    from django.utils.encoding import force_text  # Avoid circular import
-    return lazy(force_text, str)(text)
+    return lazy(str, str)(text)
 
 
 def keep_lazy(*resultclasses):
@@ -186,12 +190,9 @@ def keep_lazy(*resultclasses):
 
         @wraps(func)
         def wrapper(*args, **kwargs):
-            for arg in list(args) + list(kwargs.values()):
-                if isinstance(arg, Promise):
-                    break
-            else:
-                return func(*args, **kwargs)
-            return lazy_func(*args, **kwargs)
+            if any(isinstance(arg, Promise) for arg in itertools.chain(args, kwargs.values())):
+                return lazy_func(*args, **kwargs)
+            return func(*args, **kwargs)
         return wrapper
     return decorator
 
@@ -274,14 +275,6 @@ class LazyObject:
             self._setup()
         return (unpickle_lazyobject, (self._wrapped,))
 
-    def __getstate__(self):
-        """
-        Prevent older versions of pickle from trying to pickle the __dict__
-        (which in the case of a SimpleLazyObject may contain a lambda). The
-        value will be ignored by __reduce__() and the custom unpickler.
-        """
-        return {}
-
     def __copy__(self):
         if self._wrapped is empty:
             # If uninitialized, copy the wrapper. Use type(self), not
@@ -311,6 +304,8 @@ class LazyObject:
     # care about this (especially in equality tests)
     __class__ = property(new_method_proxy(operator.attrgetter("__class__")))
     __eq__ = new_method_proxy(operator.eq)
+    __lt__ = new_method_proxy(operator.lt)
+    __gt__ = new_method_proxy(operator.gt)
     __ne__ = new_method_proxy(operator.ne)
     __hash__ = new_method_proxy(hash)
 
@@ -348,7 +343,7 @@ class SimpleLazyObject(LazyObject):
         value.
         """
         self.__dict__['_setupfunc'] = func
-        super(SimpleLazyObject, self).__init__()
+        super().__init__()
 
     def _setup(self):
         self._wrapped = self._setupfunc()
@@ -383,7 +378,7 @@ class SimpleLazyObject(LazyObject):
 
 def partition(predicate, values):
     """
-    Splits the values into two sets, based on the return value of the function
+    Split the values into two sets, based on the return value of the function
     (True/False). e.g.:
 
         >>> partition(lambda x: x > 3, range(5))

@@ -2,7 +2,7 @@
 import time
 import warnings
 
-from django.core.exceptions import DjangoRuntimeWarning, ImproperlyConfigured
+from django.core.exceptions import ImproperlyConfigured
 from django.utils.module_loading import import_string
 
 
@@ -10,7 +10,7 @@ class InvalidCacheBackendError(ImproperlyConfigured):
     pass
 
 
-class CacheKeyWarning(DjangoRuntimeWarning):
+class CacheKeyWarning(RuntimeWarning):
     pass
 
 
@@ -26,7 +26,7 @@ def default_key_func(key, key_prefix, version):
     """
     Default function to generate keys.
 
-    Constructs the key used by all other methods. By default it prepends
+    Construct the key used by all other methods. By default, prepend
     the `key_prefix'. KEY_FUNCTION can be used to specify an alternate
     function with custom key making behavior.
     """
@@ -37,7 +37,7 @@ def get_key_func(key_func):
     """
     Function to decide which key function to use.
 
-    Defaults to ``default_key_func``.
+    Default to ``default_key_func``.
     """
     if key_func is not None:
         if callable(key_func):
@@ -76,7 +76,7 @@ class BaseCache:
 
     def get_backend_timeout(self, timeout=DEFAULT_TIMEOUT):
         """
-        Returns the timeout value usable by this backend based upon the provided
+        Return the timeout value usable by this backend based upon the provided
         timeout.
         """
         if timeout == DEFAULT_TIMEOUT:
@@ -87,12 +87,12 @@ class BaseCache:
         return None if timeout is None else time.time() + timeout
 
     def make_key(self, key, version=None):
-        """Constructs the key used by all other methods. By default it
-        uses the key_func to generate a key (which, by default,
-        prepends the `key_prefix' and 'version'). A different key
-        function can be provided at the time of cache construction;
-        alternatively, you can subclass the cache backend to provide
-        custom key making behavior.
+        """
+        Construct the key used by all other methods. By default, use the
+        key_func to generate a key (which, by default, prepends the
+        `key_prefix' and 'version'). A different key function can be provided
+        at the time of cache construction; alternatively, you can subclass the
+        cache backend to provide custom key making behavior.
         """
         if version is None:
             version = self.version
@@ -103,10 +103,10 @@ class BaseCache:
     def add(self, key, value, timeout=DEFAULT_TIMEOUT, version=None):
         """
         Set a value in the cache if the key does not already exist. If
-        timeout is given, that timeout will be used for the key; otherwise
-        the default cache timeout will be used.
+        timeout is given, use that timeout for the key; otherwise use the
+        default cache timeout.
 
-        Returns True if the value was stored, False otherwise.
+        Return True if the value was stored, False otherwise.
         """
         raise NotImplementedError('subclasses of BaseCache must provide an add() method')
 
@@ -119,10 +119,17 @@ class BaseCache:
 
     def set(self, key, value, timeout=DEFAULT_TIMEOUT, version=None):
         """
-        Set a value in the cache. If timeout is given, that timeout will be
-        used for the key; otherwise the default cache timeout will be used.
+        Set a value in the cache. If timeout is given, use that timeout for the
+        key; otherwise use the default cache timeout.
         """
         raise NotImplementedError('subclasses of BaseCache must provide a set() method')
+
+    def touch(self, key, timeout=DEFAULT_TIMEOUT, version=None):
+        """
+        Update the key's expiry time using timeout. Return True if successful
+        or False if the key does not exist.
+        """
+        raise NotImplementedError('subclasses of BaseCache must provide a touch() method')
 
     def delete(self, key, version=None):
         """
@@ -135,7 +142,7 @@ class BaseCache:
         Fetch a bunch of keys from the cache. For certain backends (memcached,
         pgsql) this can be *much* faster when fetching multiple values.
 
-        Returns a dict mapping each key in keys to its value. If the given
+        Return a dict mapping each key in keys to its value. If the given
         key is missing, it will be missing from the response dict.
         """
         d = {}
@@ -148,25 +155,27 @@ class BaseCache:
     def get_or_set(self, key, default, timeout=DEFAULT_TIMEOUT, version=None):
         """
         Fetch a given key from the cache. If the key does not exist,
-        the key is added and set to the default value. The default value can
-        also be any callable. If timeout is given, that timeout will be used
-        for the key; otherwise the default cache timeout will be used.
+        add the key and set it to the default value. The default value can
+        also be any callable. If timeout is given, use that timeout for the
+        key; otherwise use the default cache timeout.
 
         Return the value of the key stored or retrieved.
         """
         val = self.get(key, version=version)
-        if val is None and default is not None:
+        if val is None:
             if callable(default):
                 default = default()
-            self.add(key, default, timeout=timeout, version=version)
-            # Fetch the value again to avoid a race condition if another caller
-            # added a value between the first get() and the add() above.
-            return self.get(key, default, version=version)
+            if default is not None:
+                self.add(key, default, timeout=timeout, version=version)
+                # Fetch the value again to avoid a race condition if another
+                # caller added a value between the first get() and the add()
+                # above.
+                return self.get(key, default, version=version)
         return val
 
     def has_key(self, key, version=None):
         """
-        Returns True if the key is in the cache and has not expired.
+        Return True if the key is in the cache and has not expired.
         """
         return self.get(key, version=version) is not None
 
@@ -191,7 +200,7 @@ class BaseCache:
 
     def __contains__(self, key):
         """
-        Returns True if the key is in the cache and has not expired.
+        Return True if the key is in the cache and has not expired.
         """
         # This is a separate method, rather than just a copy of has_key(),
         # so that it always has the same functionality as has_key(), even
@@ -204,11 +213,15 @@ class BaseCache:
         pairs.  For certain backends (memcached), this is much more efficient
         than calling set() multiple times.
 
-        If timeout is given, that timeout will be used for the key; otherwise
-        the default cache timeout will be used.
+        If timeout is given, use that timeout for the key; otherwise use the
+        default cache timeout.
+
+        On backends that support it, return a list of keys that failed
+        insertion, or an empty list if all keys were inserted successfully.
         """
         for key, value in data.items():
             self.set(key, value, timeout=timeout, version=version)
+        return []
 
     def delete_many(self, keys, version=None):
         """
@@ -243,8 +256,9 @@ class BaseCache:
                 break
 
     def incr_version(self, key, delta=1, version=None):
-        """Adds delta to the cache version for the supplied key. Returns the
-        new version.
+        """
+        Add delta to the cache version for the supplied key. Return the new
+        version.
         """
         if version is None:
             version = self.version
@@ -258,8 +272,9 @@ class BaseCache:
         return version + delta
 
     def decr_version(self, key, delta=1, version=None):
-        """Subtracts delta from the cache version for the supplied key. Returns
-        the new version.
+        """
+        Subtract delta from the cache version for the supplied key. Return the
+        new version.
         """
         return self.incr_version(key, -delta, version)
 

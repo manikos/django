@@ -8,7 +8,7 @@ from django.db.models import signals, sql
 class ProtectedError(IntegrityError):
     def __init__(self, msg, protected_objects):
         self.protected_objects = protected_objects
-        super(ProtectedError, self).__init__(msg, protected_objects)
+        super().__init__(msg, protected_objects)
 
 
 def CASCADE(collector, field, sub_objs, using):
@@ -79,11 +79,11 @@ class Collector:
 
     def add(self, objs, source=None, nullable=False, reverse_dependency=False):
         """
-        Adds 'objs' to the collection of objects to be deleted.  If the call is
+        Add 'objs' to the collection of objects to be deleted.  If the call is
         the result of a cascade, 'source' should be the model that caused it,
         and 'nullable' should be set to True if the relation can be null.
 
-        Returns a list of all objects that were not already collected.
+        Return a list of all objects that were not already collected.
         """
         if not objs:
             return []
@@ -106,7 +106,7 @@ class Collector:
 
     def add_field_update(self, field, value, objs):
         """
-        Schedules a field update. 'objs' must be a homogeneous iterable
+        Schedule a field update. 'objs' must be a homogeneous iterable
         collection of model instances (e.g. a QuerySet).
         """
         if not objs:
@@ -118,20 +118,23 @@ class Collector:
 
     def can_fast_delete(self, objs, from_field=None):
         """
-        Determines if the objects in the given queryset-like can be
-        fast-deleted. This can be done if there are no cascades, no
+        Determine if the objects in the given queryset-like or single object
+        can be fast-deleted. This can be done if there are no cascades, no
         parents and no signal listeners for the object class.
 
         The 'from_field' tells where we are coming from - we need this to
-        determine if the objects are in fact to be deleted. Allows also
+        determine if the objects are in fact to be deleted. Allow also
         skipping parent -> child -> parent chain preventing fast delete of
         the child.
         """
         if from_field and from_field.remote_field.on_delete is not CASCADE:
             return False
-        if not (hasattr(objs, 'model') and hasattr(objs, '_raw_delete')):
+        if hasattr(objs, '_meta'):
+            model = type(objs)
+        elif hasattr(objs, 'model') and hasattr(objs, '_raw_delete'):
+            model = objs.model
+        else:
             return False
-        model = objs.model
         if (signals.pre_delete.has_listeners(model) or
                 signals.post_delete.has_listeners(model) or
                 signals.m2m_changed.has_listeners(model)):
@@ -139,22 +142,21 @@ class Collector:
         # The use of from_field comes from the need to avoid cascade back to
         # parent when parent delete is cascading to child.
         opts = model._meta
-        if any(link != from_field for link in opts.concrete_model._meta.parents.values()):
-            return False
-        # Foreign keys pointing to this model, both from m2m and other
-        # models.
-        for related in get_candidate_relations_to_delete(opts):
-            if related.field.remote_field.on_delete is not DO_NOTHING:
-                return False
-        for field in model._meta.private_fields:
-            if hasattr(field, 'bulk_related_objects'):
-                # It's something like generic foreign key.
-                return False
-        return True
+        return (
+            all(link == from_field for link in opts.concrete_model._meta.parents.values()) and
+            # Foreign keys pointing to this model.
+            all(
+                related.field.remote_field.on_delete is DO_NOTHING
+                for related in get_candidate_relations_to_delete(opts)
+            ) and (
+                # Something like generic foreign key.
+                not any(hasattr(field, 'bulk_related_objects') for field in opts.private_fields)
+            )
+        )
 
     def get_del_batches(self, objs, field):
         """
-        Returns the objs in suitably sized batches for the used connection.
+        Return the objs in suitably sized batches for the used connection.
         """
         conn_batch_size = max(
             connections[self.using].ops.bulk_batch_size([field.name], objs), 1)
@@ -167,7 +169,7 @@ class Collector:
     def collect(self, objs, source=None, nullable=False, collect_related=True,
                 source_attr=None, reverse_dependency=False, keep_parents=False):
         """
-        Adds 'objs' to the collection of objects to be deleted as well as all
+        Add 'objs' to the collection of objects to be deleted as well as all
         parent instances.  'objs' must be a homogeneous iterable collection of
         model instances (e.g. a QuerySet).  If 'collect_related' is True,
         related objects will be handled by their respective on_delete handler.
@@ -228,7 +230,7 @@ class Collector:
 
     def related_objects(self, related, objs):
         """
-        Gets a QuerySet of objects related to ``objs`` via the relation ``related``.
+        Get a QuerySet of objects related to `objs` via the relation `related`.
         """
         return related.related_model._base_manager.using(self.using).filter(
             **{"%s__in" % related.field.name: objs}
@@ -270,6 +272,14 @@ class Collector:
         # number of objects deleted for each model label
         deleted_counter = Counter()
 
+        # Optimize for the case with a single obj and no dependencies
+        if len(self.data) == 1 and len(instances) == 1:
+            instance = list(instances)[0]
+            if self.can_fast_delete(instance):
+                with transaction.mark_for_rollback_on_error():
+                    count = sql.DeleteQuery(model).delete_batch([instance.pk], self.using)
+                return count, {model._meta.label: count}
+
         with transaction.atomic(using=self.using, savepoint=False):
             # send pre_delete signals
             for model, obj in self.instances_with_model():
@@ -285,8 +295,8 @@ class Collector:
 
             # update fields
             for model, instances_for_fieldvalues in self.field_updates.items():
-                query = sql.UpdateQuery(model)
                 for (field, value), instances in instances_for_fieldvalues.items():
+                    query = sql.UpdateQuery(model)
                     query.update_batch([obj.pk for obj in instances],
                                        {field.name: value}, self.using)
 
@@ -308,7 +318,7 @@ class Collector:
                         )
 
         # update collected instances
-        for model, instances_for_fieldvalues in self.field_updates.items():
+        for instances_for_fieldvalues in self.field_updates.values():
             for (field, value), instances in instances_for_fieldvalues.items():
                 for obj in instances:
                     setattr(obj, field.attname, value)

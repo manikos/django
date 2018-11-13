@@ -19,6 +19,9 @@ class MultiColSource:
         return self.__class__(relabels.get(self.alias, self.alias),
                               self.targets, self.sources, self.field)
 
+    def get_lookup(self, lookup):
+        return self.output_field.get_lookup(lookup)
+
 
 def get_normalized_value(value, lhs):
     from django.db.models import Model
@@ -54,13 +57,13 @@ class RelatedIn(In):
                 # only one as we don't get to the direct value branch otherwise.
                 target_field = self.lhs.output_field.get_path_info()[-1].target_fields[-1]
                 self.rhs = [target_field.get_prep_value(v) for v in self.rhs]
-        return super(RelatedIn, self).get_prep_lookup()
+        return super().get_prep_lookup()
 
     def as_sql(self, compiler, connection):
         if isinstance(self.lhs, MultiColSource):
             # For multicolumn lookups we need to build a multicolumn where clause.
             # This clause is either a SubqueryConstraint (for values that need to be compiled to
-            # SQL) or a OR-combined list of (col1 = val1 AND col2 = val2 AND ...) clauses.
+            # SQL) or an OR-combined list of (col1 = val1 AND col2 = val2 AND ...) clauses.
             from django.db.models.sql.where import WhereNode, SubqueryConstraint, AND, OR
 
             root_constraint = WhereNode(connector=OR)
@@ -81,9 +84,11 @@ class RelatedIn(In):
                     AND)
             return root_constraint.as_sql(compiler, connection)
         else:
-            if getattr(self.rhs, '_forced_pk', False):
+            if (not getattr(self.rhs, 'has_select_fields', True) and
+                    not getattr(self.lhs.field.target_field, 'primary_key', False)):
                 self.rhs.clear_select_clause()
-                if getattr(self.lhs.output_field, 'primary_key', False):
+                if (getattr(self.lhs.output_field, 'primary_key', False) and
+                        self.lhs.output_field.model == self.rhs.model):
                     # A case like Restaurant.objects.filter(place__in=restaurant_qs),
                     # where place is a OneToOneField and the primary key of
                     # Restaurant.
@@ -91,7 +96,7 @@ class RelatedIn(In):
                 else:
                     target_field = self.lhs.field.target_field.name
                 self.rhs.add_fields([target_field], True)
-            return super(RelatedIn, self).as_sql(compiler, connection)
+            return super().as_sql(compiler, connection)
 
 
 class RelatedLookupMixin:
@@ -109,7 +114,7 @@ class RelatedLookupMixin:
                 target_field = self.lhs.output_field.get_path_info()[-1].target_fields[-1]
                 self.rhs = target_field.get_prep_value(self.rhs)
 
-        return super(RelatedLookupMixin, self).get_prep_lookup()
+        return super().get_prep_lookup()
 
     def as_sql(self, compiler, connection):
         if isinstance(self.lhs, MultiColSource):
@@ -122,7 +127,7 @@ class RelatedLookupMixin:
                 root_constraint.add(
                     lookup_class(target.get_col(self.lhs.alias, source), val), AND)
             return root_constraint.as_sql(compiler, connection)
-        return super(RelatedLookupMixin, self).as_sql(compiler, connection)
+        return super().as_sql(compiler, connection)
 
 
 class RelatedExact(RelatedLookupMixin, Exact):

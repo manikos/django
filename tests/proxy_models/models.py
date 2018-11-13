@@ -6,18 +6,17 @@ providing a modified interface to the data from the base class.
 """
 from django.db import models
 
-
 # A couple of managers for testing managing overriding in proxy model cases.
 
 
 class PersonManager(models.Manager):
     def get_queryset(self):
-        return super(PersonManager, self).get_queryset().exclude(name="fred")
+        return super().get_queryset().exclude(name="fred")
 
 
 class SubManager(models.Manager):
     def get_queryset(self):
-        return super(SubManager, self).get_queryset().exclude(name="wilma")
+        return super().get_queryset().exclude(name="wilma")
 
 
 class Person(models.Model):
@@ -70,7 +69,7 @@ class ManagerMixin(models.Model):
 
 class OtherPerson(Person, ManagerMixin):
     """
-    A class with the default manager from Person, plus an secondary manager.
+    A class with the default manager from Person, plus a secondary manager.
     """
     class Meta:
         proxy = True

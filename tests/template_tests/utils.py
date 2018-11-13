@@ -164,12 +164,12 @@ class SilentAttrClass:
 
 
 class UTF8Class:
-    "Class whose __str__ returns non-ASCII data on Python 2"
+    "Class whose __str__ returns non-ASCII data"
     def __str__(self):
         return 'ŠĐĆŽćžšđ'
 
 
-# These two classes are used to test auto-escaping of unicode output.
+# These two classes are used to test auto-escaping of string output.
 class UnsafeClass:
     def __str__(self):
         return 'you & me'

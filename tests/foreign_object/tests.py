@@ -13,7 +13,6 @@ from .models import (
     Group, Membership, NewsArticle, Person,
 )
 
-
 # Note that these tests are testing internal implementation details.
 # ForeignObject is not part of public API.
 
@@ -70,12 +69,10 @@ class MultiColumnFKTests(TestCase):
             membership_country_id=self.soviet_union.id, person_id=self.bob.id,
             group_id=self.republican.id)
 
-        self.assertQuerysetEqual(
-            self.bob.membership_set.all(), [
-                self.cia.id
-            ],
-            attrgetter("group_id")
-        )
+        with self.assertNumQueries(1):
+            membership = self.bob.membership_set.get()
+            self.assertEqual(membership.group_id, self.cia.id)
+            self.assertIs(membership.person, self.bob)
 
     def test_query_filters_correctly(self):
 
@@ -199,8 +196,11 @@ class MultiColumnFKTests(TestCase):
                 list(p.membership_set.all())
                 for p in Person.objects.prefetch_related('membership_set').order_by('pk')]
 
-        normal_membership_sets = [list(p.membership_set.all())
-                                  for p in Person.objects.order_by('pk')]
+        with self.assertNumQueries(7):
+            normal_membership_sets = [
+                list(p.membership_set.all())
+                for p in Person.objects.order_by('pk')
+            ]
         self.assertEqual(membership_sets, normal_membership_sets)
 
     def test_m2m_through_forward_returns_valid_members(self):
@@ -369,7 +369,12 @@ class MultiColumnFKTests(TestCase):
         ArticleTag.objects.create(article=a1, name="foo")
         self.assertEqual(Article.objects.filter(tag__name="foo").count(), 1)
         self.assertEqual(Article.objects.filter(tag__name="bar").count(), 0)
-        with self.assertRaises(FieldError):
+        msg = (
+            "Cannot resolve keyword 'tags' into field. Choices are: "
+            "active_translation, active_translation_q, articletranslation, "
+            "id, idea_things, newsarticle, pub_date, tag"
+        )
+        with self.assertRaisesMessage(FieldError, msg):
             Article.objects.filter(tags__name="foo")
 
     def test_many_to_many_related_query_name(self):
@@ -378,7 +383,12 @@ class MultiColumnFKTests(TestCase):
         a1.ideas.add(i1)
         self.assertEqual(Article.objects.filter(idea_things__name="idea1").count(), 1)
         self.assertEqual(Article.objects.filter(idea_things__name="idea2").count(), 0)
-        with self.assertRaises(FieldError):
+        msg = (
+            "Cannot resolve keyword 'ideas' into field. Choices are: "
+            "active_translation, active_translation_q, articletranslation, "
+            "id, idea_things, newsarticle, pub_date, tag"
+        )
+        with self.assertRaisesMessage(FieldError, msg):
             Article.objects.filter(ideas__name="idea1")
 
     @translation.override('fi')

@@ -17,7 +17,7 @@ from django.test import (
 from django.test.client import RedirectCycleError, RequestFactory, encode_file
 from django.test.utils import ContextList
 from django.urls import NoReverseMatch, reverse
-from django.utils.translation import ugettext_lazy
+from django.utils.translation import gettext_lazy
 
 from .models import CustomUser
 from .views import CustomTestException
@@ -131,14 +131,14 @@ class AssertContainsTests(SimpleTestCase):
         # Regression test for #10183
         r = self.client.get('/check_unicode/')
         self.assertContains(r, 'さかき')
-        self.assertContains(r, b'\xe5\xb3\xa0'.decode('utf-8'))
+        self.assertContains(r, b'\xe5\xb3\xa0'.decode())
 
     def test_unicode_not_contains(self):
         "Unicode characters can be searched for, and not found in template context"
         # Regression test for #10183
         r = self.client.get('/check_unicode/')
         self.assertNotContains(r, 'はたけ')
-        self.assertNotContains(r, b'\xe3\x81\xaf\xe3\x81\x9f\xe3\x81\x91'.decode('utf-8'))
+        self.assertNotContains(r, b'\xe3\x81\xaf\xe3\x81\x9f\xe3\x81\x91'.decode())
 
     def test_binary_contains(self):
         r = self.client.get('/check_binary/')
@@ -154,11 +154,11 @@ class AssertContainsTests(SimpleTestCase):
 
     def test_nontext_contains(self):
         r = self.client.get('/no_template_view/')
-        self.assertContains(r, ugettext_lazy('once'))
+        self.assertContains(r, gettext_lazy('once'))
 
     def test_nontext_not_contains(self):
         r = self.client.get('/no_template_view/')
-        self.assertNotContains(r, ugettext_lazy('never'))
+        self.assertNotContains(r, gettext_lazy('never'))
 
     def test_assert_contains_renders_template_response(self):
         """
@@ -391,7 +391,7 @@ class AssertRedirectsTests(SimpleTestCase):
         self.assertEqual(response.redirect_chain[2], ('/no_template_view/', 302))
 
     def test_redirect_chain_to_non_existent(self):
-        "You can follow a chain to a non-existent view"
+        "You can follow a chain to a nonexistent view."
         response = self.client.get('/redirect_to_non_existent_view2/', {}, follow=True)
         self.assertRedirects(response, '/non_existent_view/', status_code=302, target_status_code=404)
 
@@ -631,7 +631,7 @@ class AssertFormErrorTests(SimpleTestCase):
         except AssertionError as e:
             self.assertIn(
                 "The form 'form' in context 0 does not contain the non-field "
-                "error 'Some error.' (actual errors: )",
+                "error 'Some error.' (actual errors: none)",
                 str(e)
             )
         try:
@@ -639,7 +639,7 @@ class AssertFormErrorTests(SimpleTestCase):
         except AssertionError as e:
             self.assertIn(
                 "abc: The form 'form' in context 0 does not contain the "
-                "non-field error 'Some error.' (actual errors: )",
+                "non-field error 'Some error.' (actual errors: none)",
                 str(e)
             )
 
@@ -1196,12 +1196,23 @@ class RequestMethodStringDataTests(SimpleTestCase):
         response = self.client.head('/body/', data='', content_type='application/json')
         self.assertEqual(response.content, b'')
 
+    def test_json_bytes(self):
+        response = self.client.post('/body/', data=b"{'value': 37}", content_type='application/json')
+        self.assertEqual(response.content, b"{'value': 37}")
+
     def test_json(self):
         response = self.client.get('/json_response/')
         self.assertEqual(response.json(), {'key': 'value'})
 
-    def test_json_vendor(self):
-        for content_type in ('application/vnd.api+json', 'application/vnd.api.foo+json'):
+    def test_json_structured_suffixes(self):
+        valid_types = (
+            'application/vnd.api+json',
+            'application/vnd.api.foo+json',
+            'application/json; charset=utf-8',
+            'application/activity+json',
+            'application/activity+json; charset=utf-8',
+        )
+        for content_type in valid_types:
             response = self.client.get('/json_response/', {'content_type': content_type})
             self.assertEqual(response['Content-Type'], content_type)
             self.assertEqual(response.json(), {'key': 'value'})
@@ -1263,35 +1274,32 @@ class QueryStringTests(SimpleTestCase):
 
 
 @override_settings(ROOT_URLCONF='test_client_regress.urls')
-class UnicodePayloadTests(SimpleTestCase):
+class PayloadEncodingTests(SimpleTestCase):
+    """Regression tests for #10571."""
 
-    def test_simple_unicode_payload(self):
-        "A simple ASCII-only unicode JSON document can be POSTed"
-        # Regression test for #10571
-        json = '{"english": "mountain pass"}'
-        response = self.client.post("/parse_unicode_json/", json, content_type="application/json")
-        self.assertEqual(response.content, json.encode())
+    def test_simple_payload(self):
+        """A simple ASCII-only text can be POSTed."""
+        text = 'English: mountain pass'
+        response = self.client.post('/parse_encoded_text/', text, content_type='text/plain')
+        self.assertEqual(response.content, text.encode())
 
-    def test_unicode_payload_utf8(self):
-        "A non-ASCII unicode data encoded as UTF-8 can be POSTed"
-        # Regression test for #10571
-        json = '{"dog": "собака"}'
-        response = self.client.post("/parse_unicode_json/", json, content_type="application/json; charset=utf-8")
-        self.assertEqual(response.content, json.encode('utf-8'))
+    def test_utf8_payload(self):
+        """Non-ASCII data encoded as UTF-8 can be POSTed."""
+        text = 'dog: собака'
+        response = self.client.post('/parse_encoded_text/', text, content_type='text/plain; charset=utf-8')
+        self.assertEqual(response.content, text.encode())
 
-    def test_unicode_payload_utf16(self):
-        "A non-ASCII unicode data encoded as UTF-16 can be POSTed"
-        # Regression test for #10571
-        json = '{"dog": "собака"}'
-        response = self.client.post("/parse_unicode_json/", json, content_type="application/json; charset=utf-16")
-        self.assertEqual(response.content, json.encode('utf-16'))
+    def test_utf16_payload(self):
+        """Non-ASCII data encoded as UTF-16 can be POSTed."""
+        text = 'dog: собака'
+        response = self.client.post('/parse_encoded_text/', text, content_type='text/plain; charset=utf-16')
+        self.assertEqual(response.content, text.encode('utf-16'))
 
-    def test_unicode_payload_non_utf(self):
-        "A non-ASCII unicode data as a non-UTF based encoding can be POSTed"
-        # Regression test for #10571
-        json = '{"dog": "собака"}'
-        response = self.client.post("/parse_unicode_json/", json, content_type="application/json; charset=koi8-r")
-        self.assertEqual(response.content, json.encode('koi8-r'))
+    def test_non_utf_payload(self):
+        """Non-ASCII data as a non-UTF based encoding can be POSTed."""
+        text = 'dog: собака'
+        response = self.client.post('/parse_encoded_text/', text, content_type='text/plain; charset=koi8-r')
+        self.assertEqual(response.content, text.encode('koi8-r'))
 
 
 class DummyFile:
@@ -1417,3 +1425,9 @@ class RequestFactoryEnvironmentTests(SimpleTestCase):
         self.assertEqual(request.META.get('SERVER_PORT'), '80')
         self.assertEqual(request.META.get('SERVER_PROTOCOL'), 'HTTP/1.1')
         self.assertEqual(request.META.get('SCRIPT_NAME') + request.META.get('PATH_INFO'), '/path/')
+
+    def test_cookies(self):
+        factory = RequestFactory()
+        factory.cookies.load('A="B"; C="D"; Path=/; Version=1')
+        request = factory.get('/')
+        self.assertEqual(request.META['HTTP_COOKIE'], 'A="B"; C="D"')

@@ -1,4 +1,3 @@
-import sys
 from importlib import import_module
 from pkgutil import walk_packages
 
@@ -8,7 +7,6 @@ from django.template import TemplateDoesNotExist
 from django.template.context import make_context
 from django.template.engine import Engine
 from django.template.library import InvalidTemplateLibrary
-from django.utils import six
 
 from .base import BaseEngine
 
@@ -25,7 +23,7 @@ class DjangoTemplates(BaseEngine):
         options.setdefault('file_charset', settings.FILE_CHARSET)
         libraries = options.get('libraries', {})
         options['libraries'] = self.get_templatetag_libraries(libraries)
-        super(DjangoTemplates, self).__init__(params)
+        super().__init__(params)
         self.engine = Engine(self.dirs, self.app_dirs, **options)
 
     def from_string(self, template_code):
@@ -83,7 +81,7 @@ def reraise(exc, backend):
     Reraise TemplateDoesNotExist while maintaining template debug information.
     """
     new = copy_exception(exc, backend)
-    six.reraise(exc.__class__, new, sys.exc_info()[2])
+    raise new from exc
 
 
 def get_installed_libraries():

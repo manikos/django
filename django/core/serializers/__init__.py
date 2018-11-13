@@ -131,7 +131,7 @@ def serialize(format, queryset, **options):
 
 def deserialize(format, stream_or_string, **options):
     """
-    Deserialize a stream or a string. Returns an iterator that yields ``(obj,
+    Deserialize a stream or a string. Return an iterator that yields ``(obj,
     m2m_relation_dict)``, where ``obj`` is an instantiated -- but *unsaved* --
     object, and ``m2m_relation_dict`` is a dictionary of ``{m2m_field_name :
     list_of_related_objects}``.
@@ -216,11 +216,7 @@ def sort_dependencies(app_list):
             # If all of the models in the dependency list are either already
             # on the final model list, or not on the original serialization list,
             # then we've found another model with all it's dependencies satisfied.
-            found = True
-            for candidate in ((d not in models or d in model_list) for d in deps):
-                if not candidate:
-                    found = False
-            if found:
+            if all(d not in models or d in model_list for d in deps):
                 model_list.append(model)
                 changed = True
             else:

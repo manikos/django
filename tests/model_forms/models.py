@@ -1,11 +1,3 @@
-"""
-XX. Generating HTML forms from models
-
-This is mostly just a reworking of the ``form_for_model``/``form_for_instance``
-tests to use ``ModelForm``. As such, the text may not make sense in all cases,
-and the examples are probably a poor fit for the ``ModelForm`` syntax. In other
-words, most of these tests should be rewritten.
-"""
 import datetime
 import os
 import tempfile
@@ -71,7 +63,7 @@ class Article(models.Model):
     def save(self, *args, **kwargs):
         if not self.id:
             self.created = datetime.date.today()
-        return super(Article, self).save(*args, **kwargs)
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return self.headline
@@ -159,7 +151,7 @@ class CustomFF(models.Model):
 
 
 class FilePathModel(models.Model):
-    path = models.FilePathField(path=os.path.dirname(__file__), match=r".*\.py$", blank=True)
+    path = models.FilePathField(path=os.path.dirname(__file__), match='models.py', blank=True)
 
 
 try:
@@ -200,6 +192,17 @@ try:
 
         def __str__(self):
             return self.description
+
+    class NoExtensionImageFile(models.Model):
+        def upload_to(self, filename):
+            return 'tests/no_extension'
+
+        description = models.CharField(max_length=20)
+        image = models.ImageField(storage=temp_storage, upload_to=upload_to)
+
+        def __str__(self):
+            return self.description
+
 except ImportError:
     test_images = False
 
@@ -322,7 +325,7 @@ class BigInt(models.Model):
 class MarkupField(models.CharField):
     def __init__(self, *args, **kwargs):
         kwargs["max_length"] = 20
-        super(MarkupField, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
     def formfield(self, **kwargs):
         # don't allow this field to be used in form (real use-case might be
@@ -348,8 +351,7 @@ class Colour(models.Model):
     name = models.CharField(max_length=50)
 
     def __iter__(self):
-        for number in range(5):
-            yield number
+        yield from range(5)
 
     def __str__(self):
         return self.name
@@ -418,11 +420,11 @@ class Photo(models.Model):
     # Support code for the tests; this keeps track of how many times save()
     # gets called on each instance.
     def __init__(self, *args, **kwargs):
-        super(Photo, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self._savecount = 0
 
     def save(self, force_insert=False, force_update=False):
-        super(Photo, self).save(force_insert, force_update)
+        super().save(force_insert, force_update)
         self._savecount += 1
 
 
@@ -439,7 +441,7 @@ class StrictAssignmentFieldSpecific(models.Model):
     def __setattr__(self, key, value):
         if self._should_error is True:
             raise ValidationError(message={key: "Cannot set attribute"}, code='invalid')
-        super(StrictAssignmentFieldSpecific, self).__setattr__(key, value)
+        super().__setattr__(key, value)
 
 
 class StrictAssignmentAll(models.Model):
@@ -449,7 +451,7 @@ class StrictAssignmentAll(models.Model):
     def __setattr__(self, key, value):
         if self._should_error is True:
             raise ValidationError(message="Cannot set attribute", code='invalid')
-        super(StrictAssignmentAll, self).__setattr__(key, value)
+        super().__setattr__(key, value)
 
 
 # A model with ForeignKey(blank=False, null=True)

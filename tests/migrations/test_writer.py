@@ -5,7 +5,6 @@ import functools
 import math
 import os
 import re
-import sys
 import uuid
 from unittest import mock
 
@@ -20,15 +19,13 @@ from django.db.migrations.writer import (
     MigrationWriter, OperationWriter, SettingsReference,
 )
 from django.test import SimpleTestCase
-from django.utils import datetime_safe
 from django.utils.deconstruct import deconstructible
 from django.utils.functional import SimpleLazyObject
-from django.utils.timezone import FixedOffset, get_default_timezone, utc
-from django.utils.translation import ugettext_lazy as _
+from django.utils.timezone import get_default_timezone, get_fixed_timezone, utc
+from django.utils.translation import gettext_lazy as _
+from django.utils.version import PY36
 
 from .models import FoodManager, FoodQuerySet
-
-PY36 = sys.version_info >= (3, 6)
 
 
 class Money(decimal.Decimal):
@@ -38,6 +35,12 @@ class Money(decimal.Decimal):
             [str(self)],
             {}
         )
+
+
+class TestModel1:
+    def upload_to(self):
+        return '/somewhere/dynamic/'
+    thing = models.FileField(upload_to=upload_to)
 
 
 class OperationWriterTests(SimpleTestCase):
@@ -247,7 +250,7 @@ class WriterTests(SimpleTestCase):
         )
 
     def test_serialize_lazy_objects(self):
-        pattern = re.compile(r'^foo$', re.UNICODE)
+        pattern = re.compile(r'^foo$')
         lazy_pattern = SimpleLazyObject(lambda: pattern)
         self.assertEqual(self.serialize_round_trip(lazy_pattern), pattern)
 
@@ -347,7 +350,7 @@ class WriterTests(SimpleTestCase):
         self.assertSerializedEqual(datetime.date.today)
         self.assertSerializedEqual(datetime.datetime.now().time())
         self.assertSerializedEqual(datetime.datetime(2014, 1, 1, 1, 1, tzinfo=get_default_timezone()))
-        self.assertSerializedEqual(datetime.datetime(2013, 12, 31, 22, 1, tzinfo=FixedOffset(180)))
+        self.assertSerializedEqual(datetime.datetime(2013, 12, 31, 22, 1, tzinfo=get_fixed_timezone(180)))
         self.assertSerializedResultEqual(
             datetime.datetime(2014, 1, 1, 1, 1),
             ("datetime.datetime(2014, 1, 1, 1, 1)", {'import datetime'})
@@ -358,20 +361,6 @@ class WriterTests(SimpleTestCase):
                 "datetime.datetime(2012, 1, 1, 1, 1, tzinfo=utc)",
                 {'import datetime', 'from django.utils.timezone import utc'},
             )
-        )
-
-    def test_serialize_datetime_safe(self):
-        self.assertSerializedResultEqual(
-            datetime_safe.date(2014, 3, 31),
-            ("datetime.date(2014, 3, 31)", {'import datetime'})
-        )
-        self.assertSerializedResultEqual(
-            datetime_safe.time(10, 25),
-            ("datetime.time(10, 25)", {'import datetime'})
-        )
-        self.assertSerializedResultEqual(
-            datetime_safe.datetime(2014, 3, 31, 16, 4, 31),
-            ("datetime.datetime(2014, 3, 31, 16, 4, 31)", {'import datetime'})
         )
 
     def test_serialize_fields(self):
@@ -403,7 +392,7 @@ class WriterTests(SimpleTestCase):
         """
         Make sure compiled regex can be serialized.
         """
-        regex = re.compile(r'^\w+$', re.U)
+        regex = re.compile(r'^\w+$')
         self.assertSerializedEqual(regex)
 
     def test_serialize_class_based_validators(self):
@@ -417,18 +406,18 @@ class WriterTests(SimpleTestCase):
         self.serialize_round_trip(validator)
 
         # Test with a compiled regex.
-        validator = RegexValidator(regex=re.compile(r'^\w+$', re.U))
+        validator = RegexValidator(regex=re.compile(r'^\w+$'))
         string = MigrationWriter.serialize(validator)[0]
-        self.assertEqual(string, "django.core.validators.RegexValidator(regex=re.compile('^\\\\w+$', 32))")
+        self.assertEqual(string, "django.core.validators.RegexValidator(regex=re.compile('^\\\\w+$'))")
         self.serialize_round_trip(validator)
 
         # Test a string regex with flag
-        validator = RegexValidator(r'^[0-9]+$', flags=re.U)
+        validator = RegexValidator(r'^[0-9]+$', flags=re.S)
         string = MigrationWriter.serialize(validator)[0]
         if PY36:
-            self.assertEqual(string, "django.core.validators.RegexValidator('^[0-9]+$', flags=re.RegexFlag(32))")
+            self.assertEqual(string, "django.core.validators.RegexValidator('^[0-9]+$', flags=re.RegexFlag(16))")
         else:
-            self.assertEqual(string, "django.core.validators.RegexValidator('^[0-9]+$', flags=32)")
+            self.assertEqual(string, "django.core.validators.RegexValidator('^[0-9]+$', flags=16)")
         self.serialize_round_trip(validator)
 
         # Test message and code
@@ -472,21 +461,12 @@ class WriterTests(SimpleTestCase):
         self.assertEqual(string, 'range')
         self.assertEqual(imports, set())
 
-    def test_serialize_local_function_reference(self):
-        """
-        Neither py2 or py3 can serialize a reference in a local scope.
-        """
-        class TestModel2:
-            def upload_to(self):
-                return "somewhere dynamic"
-            thing = models.FileField(upload_to=upload_to)
-        with self.assertRaises(ValueError):
-            self.serialize_round_trip(TestModel2.thing)
+    def test_serialize_unbound_method_reference(self):
+        """An unbound method used within a class body can be serialized."""
+        self.serialize_round_trip(TestModel1.thing)
 
-    def test_serialize_local_function_reference_message(self):
-        """
-        Make sure user is seeing which module/function is the issue
-        """
+    def test_serialize_local_function_reference(self):
+        """A reference in a local scope can't be serialized."""
         class TestModel2:
             def upload_to(self):
                 return "somewhere dynamic"
@@ -508,6 +488,12 @@ class WriterTests(SimpleTestCase):
         self.assertSerializedEqual(frozenset())
         self.assertSerializedEqual(frozenset("let it go"))
 
+    def test_serialize_set(self):
+        self.assertSerializedEqual(set())
+        self.assertSerializedResultEqual(set(), ('set()', set()))
+        self.assertSerializedEqual({'a'})
+        self.assertSerializedResultEqual({'a'}, ("{'a'}", set()))
+
     def test_serialize_timedelta(self):
         self.assertSerializedEqual(datetime.timedelta())
         self.assertSerializedEqual(datetime.timedelta(minutes=42))
@@ -518,6 +504,17 @@ class WriterTests(SimpleTestCase):
         self.assertEqual(result.func, value.func)
         self.assertEqual(result.args, value.args)
         self.assertEqual(result.keywords, value.keywords)
+
+    def test_serialize_functools_partialmethod(self):
+        value = functools.partialmethod(datetime.timedelta, 1, seconds=2)
+        result = self.serialize_round_trip(value)
+        self.assertIsInstance(result, functools.partialmethod)
+        self.assertEqual(result.func, value.func)
+        self.assertEqual(result.args, value.args)
+        self.assertEqual(result.keywords, value.keywords)
+
+    def test_serialize_type_none(self):
+        self.assertSerializedEqual(type(None))
 
     def test_simple_migration(self):
         """

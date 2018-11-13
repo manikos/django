@@ -36,7 +36,7 @@ class StartsWithRelation(models.ForeignObject):
 
     def __init__(self, *args, **kwargs):
         kwargs['on_delete'] = models.DO_NOTHING
-        super(StartsWithRelation, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
     @property
     def field(self):
@@ -51,20 +51,36 @@ class StartsWithRelation(models.ForeignObject):
         return StartsWith(to_field.get_col(alias), from_field.get_col(related_alias))
 
     def get_joining_columns(self, reverse_join=False):
-        return tuple()
+        return ()
 
-    def get_path_info(self):
+    def get_path_info(self, filtered_relation=None):
         to_opts = self.remote_field.model._meta
         from_opts = self.model._meta
-        return [PathInfo(from_opts, to_opts, (to_opts.pk,), self, False, False)]
+        return [PathInfo(
+            from_opts=from_opts,
+            to_opts=to_opts,
+            target_fields=(to_opts.pk,),
+            join_field=self,
+            m2m=False,
+            direct=False,
+            filtered_relation=filtered_relation,
+        )]
 
-    def get_reverse_path_info(self):
+    def get_reverse_path_info(self, filtered_relation=None):
         to_opts = self.model._meta
         from_opts = self.remote_field.model._meta
-        return [PathInfo(from_opts, to_opts, (to_opts.pk,), self.remote_field, False, False)]
+        return [PathInfo(
+            from_opts=from_opts,
+            to_opts=to_opts,
+            target_fields=(to_opts.pk,),
+            join_field=self.remote_field,
+            m2m=False,
+            direct=False,
+            filtered_relation=filtered_relation,
+        )]
 
     def contribute_to_class(self, cls, name, private_only=False):
-        super(StartsWithRelation, self).contribute_to_class(cls, name, private_only)
+        super().contribute_to_class(cls, name, private_only)
         setattr(cls, self.name, ReverseManyToOneDescriptor(self))
 
 

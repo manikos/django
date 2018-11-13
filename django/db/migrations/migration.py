@@ -58,9 +58,11 @@ class Migration:
         self.replaces = list(self.__class__.replaces)
 
     def __eq__(self, other):
-        if not isinstance(other, Migration):
-            return False
-        return (self.name == other.name) and (self.app_label == other.app_label)
+        return (
+            isinstance(other, Migration) and
+            self.name == other.name and
+            self.app_label == other.app_label
+        )
 
     def __repr__(self):
         return "<Migration %s.%s>" % (self.app_label, self.name)
@@ -73,9 +75,9 @@ class Migration:
 
     def mutate_state(self, project_state, preserve=True):
         """
-        Takes a ProjectState and returns a new one with the migration's
-        operations applied to it. Preserves the original object state by
-        default and will return a mutated state from a copy.
+        Take a ProjectState and return a new one with the migration's
+        operations applied to it. Preserve the original object state by
+        default and return a mutated state from a copy.
         """
         new_state = project_state
         if preserve:
@@ -87,11 +89,11 @@ class Migration:
 
     def apply(self, project_state, schema_editor, collect_sql=False):
         """
-        Takes a project_state representing all migrations prior to this one
-        and a schema_editor for a live database and applies the migration
+        Take a project_state representing all migrations prior to this one
+        and a schema_editor for a live database and apply the migration
         in a forwards order.
 
-        Returns the resulting project state for efficient re-use by following
+        Return the resulting project state for efficient reuse by following
         Migrations.
         """
         for operation in self.operations:
@@ -124,8 +126,8 @@ class Migration:
 
     def unapply(self, project_state, schema_editor, collect_sql=False):
         """
-        Takes a project_state representing all migrations prior to this one
-        and a schema_editor for a live database and applies the migration
+        Take a project_state representing all migrations prior to this one
+        and a schema_editor for a live database and apply the migration
         in a reverse order.
 
         The backwards migration process consists of two phases:
@@ -162,8 +164,10 @@ class Migration:
                 schema_editor.collected_sql.append("--")
                 if not operation.reduces_to_sql:
                     continue
-            if not schema_editor.connection.features.can_rollback_ddl and operation.atomic:
-                # We're forcing a transaction on a non-transactional-DDL backend
+            atomic_operation = operation.atomic or (self.atomic and operation.atomic is not False)
+            if not schema_editor.atomic_migration and atomic_operation:
+                # Force a transaction on a non-transactional-DDL backend or an
+                # atomic operation inside a non-atomic migration.
                 with atomic(schema_editor.connection.alias):
                     operation.database_backwards(self.app_label, schema_editor, from_state, to_state)
             else:
@@ -185,7 +189,5 @@ class SwappableTuple(tuple):
 
 
 def swappable_dependency(value):
-    """
-    Turns a setting value into a dependency.
-    """
+    """Turn a setting value into a dependency."""
     return SwappableTuple((value.split(".", 1)[0], "__first__"), value)

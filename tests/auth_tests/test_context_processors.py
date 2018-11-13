@@ -10,14 +10,10 @@ from .settings import AUTH_MIDDLEWARE, AUTH_TEMPLATES
 
 class MockUser:
     def has_module_perms(self, perm):
-        if perm == 'mockapp':
-            return True
-        return False
+        return perm == 'mockapp'
 
     def has_perm(self, perm):
-        if perm == 'mockapp.someperm':
-            return True
-        return False
+        return perm == 'mockapp.someperm'
 
 
 class PermWrapperTests(SimpleTestCase):
@@ -44,9 +40,9 @@ class PermWrapperTests(SimpleTestCase):
         perms = PermWrapper(MockUser())
         # Works for modules and full permissions.
         self.assertIn('mockapp', perms)
-        self.assertNotIn('nonexisting', perms)
+        self.assertNotIn('nonexistent', perms)
         self.assertIn('mockapp.someperm', perms)
-        self.assertNotIn('mockapp.nonexisting', perms)
+        self.assertNotIn('mockapp.nonexistent', perms)
 
     def test_permlookupdict_in(self):
         """
@@ -55,6 +51,10 @@ class PermWrapperTests(SimpleTestCase):
         pldict = PermLookupDict(MockUser(), 'mockapp')
         with self.assertRaises(TypeError):
             self.EQLimiterObject() in pldict
+
+    def test_iter(self):
+        with self.assertRaisesMessage(TypeError, 'PermWrapper is not iterable.'):
+            iter(PermWrapper(MockUser()))
 
 
 @override_settings(ROOT_URLCONF='auth_tests.urls', TEMPLATES=AUTH_TEMPLATES)
@@ -95,7 +95,7 @@ class AuthContextProcessorTests(TestCase):
         response = self.client.get('/auth_processor_perms/')
         self.assertContains(response, "Has auth permissions")
         self.assertContains(response, "Has auth.add_permission permissions")
-        self.assertNotContains(response, "nonexisting")
+        self.assertNotContains(response, "nonexistent")
 
     def test_perm_in_perms_attrs(self):
         u = User.objects.create_user(username='normal', password='secret')
@@ -107,7 +107,7 @@ class AuthContextProcessorTests(TestCase):
         response = self.client.get('/auth_processor_perm_in_perms/')
         self.assertContains(response, "Has auth permissions")
         self.assertContains(response, "Has auth.add_permission permissions")
-        self.assertNotContains(response, "nonexisting")
+        self.assertNotContains(response, "nonexistent")
 
     def test_message_attrs(self):
         self.client.force_login(self.superuser)
@@ -130,21 +130,7 @@ class AuthContextProcessorTests(TestCase):
         # bug #12037 is tested by the {% url %} in the template:
         self.assertContains(response, "url: /userpage/super/")
 
-        # See if this object can be used for queries where a Q() comparing
-        # a user can be used with another Q() (in an AND or OR fashion).
-        # This simulates what a template tag might do with the user from the
-        # context. Note that we don't need to execute a query, just build it.
-        #
-        # The failure case (bug #12049) on Python 2.4 with a LazyObject-wrapped
-        # User is a fatal TypeError: "function() takes at least 2 arguments
-        # (0 given)" deep inside deepcopy().
-        #
-        # Python 2.5 and 2.6 succeeded, but logged internally caught exception
-        # spew:
-        #
-        #    Exception RuntimeError: 'maximum recursion depth exceeded while
-        #    calling a Python object' in <type 'exceptions.AttributeError'>
-        #    ignored"
+        # A Q() comparing a user and with another Q() (in an AND or OR fashion).
         Q(user=response.context['user']) & Q(someflag=True)
 
         # Tests for user equality.  This is hard because User defines

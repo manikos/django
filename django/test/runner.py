@@ -6,19 +6,17 @@ import os
 import pickle
 import textwrap
 import unittest
-import warnings
 from importlib import import_module
 from io import StringIO
 
 from django.core.management import call_command
 from django.db import connections
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, TransactionTestCase
 from django.test.utils import (
     setup_databases as _setup_databases, setup_test_environment,
     teardown_databases as _teardown_databases, teardown_test_environment,
 )
 from django.utils.datastructures import OrderedSet
-from django.utils.deprecation import RemovedInDjango21Warning
 
 try:
     import tblib.pickling_support
@@ -30,16 +28,16 @@ class DebugSQLTextTestResult(unittest.TextTestResult):
     def __init__(self, stream, descriptions, verbosity):
         self.logger = logging.getLogger('django.db.backends')
         self.logger.setLevel(logging.DEBUG)
-        super(DebugSQLTextTestResult, self).__init__(stream, descriptions, verbosity)
+        super().__init__(stream, descriptions, verbosity)
 
     def startTest(self, test):
         self.debug_sql_stream = StringIO()
         self.handler = logging.StreamHandler(self.debug_sql_stream)
         self.logger.addHandler(self.handler)
-        super(DebugSQLTextTestResult, self).startTest(test)
+        super().startTest(test)
 
     def stopTest(self, test):
-        super(DebugSQLTextTestResult, self).stopTest(test)
+        super().stopTest(test)
         self.logger.removeHandler(self.handler)
         if self.showAll:
             self.debug_sql_stream.seek(0)
@@ -47,14 +45,21 @@ class DebugSQLTextTestResult(unittest.TextTestResult):
             self.stream.writeln(self.separator2)
 
     def addError(self, test, err):
-        super(DebugSQLTextTestResult, self).addError(test, err)
+        super().addError(test, err)
         self.debug_sql_stream.seek(0)
         self.errors[-1] = self.errors[-1] + (self.debug_sql_stream.read(),)
 
     def addFailure(self, test, err):
-        super(DebugSQLTextTestResult, self).addFailure(test, err)
+        super().addFailure(test, err)
         self.debug_sql_stream.seek(0)
         self.failures[-1] = self.failures[-1] + (self.debug_sql_stream.read(),)
+
+    def addSubTest(self, test, subtest, err):
+        super().addSubTest(test, subtest, err)
+        if err is not None:
+            self.debug_sql_stream.seek(0)
+            errors = self.failures if issubclass(err[0], test.failureException) else self.errors
+            errors[-1] = errors[-1] + (self.debug_sql_stream.read(),)
 
     def printErrorList(self, flavour, errors):
         for test, err, sql_debug in errors:
@@ -253,13 +258,10 @@ class RemoteTestRunner:
 
 
 def default_test_processes():
-    """
-    Default number of test processes when using the --parallel option.
-    """
+    """Default number of test processes when using the --parallel option."""
     # The current implementation of the parallel test runner requires
     # multiprocessing to start subprocesses with fork().
-    # On Python 3.4+: if multiprocessing.get_start_method() != 'fork':
-    if not hasattr(os, 'fork'):
+    if multiprocessing.get_start_method() != 'fork':
         return 1
     try:
         return int(os.environ['DJANGO_TEST_PROCESSES'])
@@ -286,7 +288,7 @@ def _init_worker(counter):
 
     for alias in connections:
         connection = connections[alias]
-        settings_dict = connection.creation.get_test_db_clone_settings(_worker_id)
+        settings_dict = connection.creation.get_test_db_clone_settings(str(_worker_id))
         # connection.settings_dict must be updated in place for changes to be
         # reflected in django.db.connections. If the following line assigned
         # connection.settings_dict = settings_dict, new threads would connect
@@ -333,7 +335,7 @@ class ParallelTestSuite(unittest.TestSuite):
         self.subsuites = partition_suite_by_case(suite)
         self.processes = processes
         self.failfast = failfast
-        super(ParallelTestSuite, self).__init__()
+        super().__init__()
 
     def run(self, result):
         """
@@ -348,13 +350,14 @@ class ParallelTestSuite(unittest.TestSuite):
         - make tracebacks picklable with tblib, if available
 
         Even with tblib, errors may still occur for dynamically created
-        exception classes such Model.DoesNotExist which cannot be unpickled.
+        exception classes which cannot be unpickled.
         """
         counter = multiprocessing.Value(ctypes.c_int, 0)
         pool = multiprocessing.Pool(
             processes=self.processes,
             initializer=self.init_worker.__func__,
-            initargs=[counter])
+            initargs=[counter],
+        )
         args = [
             (self.runner_class, index, subsuite, self.failfast)
             for index, subsuite in enumerate(self.subsuites)
@@ -390,15 +393,13 @@ class ParallelTestSuite(unittest.TestSuite):
 
 
 class DiscoverRunner:
-    """
-    A Django test runner that uses unittest2 test discovery.
-    """
+    """A Django test runner that uses unittest2 test discovery."""
 
     test_suite = unittest.TestSuite
     parallel_test_suite = ParallelTestSuite
     test_runner = unittest.TextTestRunner
     test_loader = unittest.defaultTestLoader
-    reorder_by = (TestCase, SimpleTestCase)
+    reorder_by = (TestCase, TransactionTestCase, SimpleTestCase)
 
     def __init__(self, pattern=None, top_level=None, verbosity=1,
                  interactive=True, failfast=False, keepdb=False,
@@ -421,31 +422,31 @@ class DiscoverRunner:
     @classmethod
     def add_arguments(cls, parser):
         parser.add_argument(
-            '-t', '--top-level-directory', action='store', dest='top_level', default=None,
+            '-t', '--top-level-directory', dest='top_level',
             help='Top level of project for unittest discovery.',
         )
         parser.add_argument(
-            '-p', '--pattern', action='store', dest='pattern', default="test*.py",
+            '-p', '--pattern', default="test*.py",
             help='The test matching pattern. Defaults to test*.py.',
         )
         parser.add_argument(
-            '-k', '--keepdb', action='store_true', dest='keepdb', default=False,
+            '-k', '--keepdb', action='store_true',
             help='Preserves the test DB between runs.'
         )
         parser.add_argument(
-            '-r', '--reverse', action='store_true', dest='reverse', default=False,
+            '-r', '--reverse', action='store_true',
             help='Reverses test cases order.',
         )
         parser.add_argument(
-            '--debug-mode', action='store_true', dest='debug_mode', default=False,
+            '--debug-mode', action='store_true',
             help='Sets settings.DEBUG to True.',
         )
         parser.add_argument(
-            '-d', '--debug-sql', action='store_true', dest='debug_sql', default=False,
+            '-d', '--debug-sql', action='store_true',
             help='Prints logged SQL queries on failure.',
         )
         parser.add_argument(
-            '--parallel', dest='parallel', nargs='?', default=1, type=int,
+            '--parallel', nargs='?', default=1, type=int,
             const=default_test_processes(), metavar='N',
             help='Run tests using up to N parallel processes.',
         )
@@ -522,6 +523,11 @@ class DiscoverRunner:
             suite.addTest(test)
 
         if self.tags or self.exclude_tags:
+            if self.verbosity >= 2:
+                if self.tags:
+                    print('Including test tag(s): %s.' % ', '.join(sorted(self.tags)))
+                if self.exclude_tags:
+                    print('Excluding test tag(s): %s.' % ', '.join(sorted(self.exclude_tags)))
             suite = filter_tests_by_tags(suite, self.tags, self.exclude_tags)
         suite = reorder_suite(suite, self.reorder_by, self.reverse)
 
@@ -531,8 +537,7 @@ class DiscoverRunner:
             # Since tests are distributed across processes on a per-TestCase
             # basis, there's no need for more processes than TestCases.
             parallel_units = len(parallel_suite.subsuites)
-            if self.parallel > parallel_units:
-                self.parallel = parallel_units
+            self.parallel = min(self.parallel, parallel_units)
 
             # If there's only one TestCase, parallelization isn't needed.
             if self.parallel > 1:
@@ -550,11 +555,11 @@ class DiscoverRunner:
         return DebugSQLTextTestResult if self.debug_sql else None
 
     def get_test_runner_kwargs(self):
-        return dict(
-            failfast=self.failfast,
-            resultclass=self.get_resultclass(),
-            verbosity=self.verbosity,
-        )
+        return {
+            'failfast': self.failfast,
+            'resultclass': self.get_resultclass(),
+            'verbosity': self.verbosity,
+        }
 
     def run_checks(self):
         # Checks are run after database creation since some checks require
@@ -567,9 +572,7 @@ class DiscoverRunner:
         return runner.run(suite)
 
     def teardown_databases(self, old_config, **kwargs):
-        """
-        Destroys all the non-mirror databases.
-        """
+        """Destroy all the non-mirror databases."""
         _teardown_databases(
             old_config,
             verbosity=self.verbosity,
@@ -594,21 +597,33 @@ class DiscoverRunner:
         A list of 'extra' tests may also be provided; these tests
         will be added to the test suite.
 
-        Returns the number of tests that failed.
+        Return the number of tests that failed.
         """
         self.setup_test_environment()
         suite = self.build_suite(test_labels, extra_tests)
         old_config = self.setup_databases()
-        self.run_checks()
-        result = self.run_suite(suite)
-        self.teardown_databases(old_config)
-        self.teardown_test_environment()
+        run_failed = False
+        try:
+            self.run_checks()
+            result = self.run_suite(suite)
+        except Exception:
+            run_failed = True
+            raise
+        finally:
+            try:
+                self.teardown_databases(old_config)
+                self.teardown_test_environment()
+            except Exception:
+                # Silence teardown exceptions if an exception was raised during
+                # runs to avoid shadowing it.
+                if not run_failed:
+                    raise
         return self.suite_result(suite, result)
 
 
 def is_discoverable(label):
     """
-    Check if a test label points to a python package or file directory.
+    Check if a test label points to a Python package or file directory.
 
     Relative labels like "." and ".." are seen as directories.
     """
@@ -622,17 +637,33 @@ def is_discoverable(label):
     return os.path.isdir(os.path.abspath(label))
 
 
+def reorder_postprocess(reordered_suite):
+    """
+    To make TransactionTestCases initialize their data properly, they must know
+    if the next TransactionTestCase needs initial data migrations serialized in
+    the connection. Initialize _next_serialized_rollback attribute depending on
+    the serialized_rollback option present in the next test class in the suite.
+    If the next test has no serialized_rollback attribute, it means there
+    aren't any more TransactionTestCases.
+    """
+    for previous_test, next_test in zip(reordered_suite._tests[:-1], reordered_suite._tests[1:]):
+        next_serialized_rollback = getattr(next_test, 'serialized_rollback', None)
+        if next_serialized_rollback is not None:
+            previous_test._next_serialized_rollback = next_serialized_rollback
+    return reordered_suite
+
+
 def reorder_suite(suite, classes, reverse=False):
     """
-    Reorders a test suite by test type.
+    Reorder a test suite by test type.
 
     `classes` is a sequence of types
 
     All tests of type classes[0] are placed first, then tests of type
     classes[1], etc. Tests with no match in classes are placed last.
 
-    If `reverse` is True, tests within classes are sorted in opposite order,
-    but test classes are not reversed.
+    If `reverse` is True, sort tests within classes in opposite order but
+    don't reverse test classes.
     """
     class_count = len(classes)
     suite_class = type(suite)
@@ -641,12 +672,12 @@ def reorder_suite(suite, classes, reverse=False):
     reordered_suite = suite_class()
     for i in range(class_count + 1):
         reordered_suite.addTests(bins[i])
-    return reordered_suite
+    return reorder_postprocess(reordered_suite)
 
 
 def partition_suite_by_type(suite, classes, bins, reverse=False):
     """
-    Partitions a test suite by test type. Also prevents duplicated tests.
+    Partition a test suite by test type. Also prevent duplicated tests.
 
     classes is a sequence of types
     bins is a sequence of TestSuites, one more than classes
@@ -671,9 +702,7 @@ def partition_suite_by_type(suite, classes, bins, reverse=False):
 
 
 def partition_suite_by_case(suite):
-    """
-    Partitions a test suite by test case, preserving the order of tests.
-    """
+    """Partition a test suite by test case, preserving the order of tests."""
     groups = []
     suite_class = type(suite)
     for test_type, test_group in itertools.groupby(suite, type):
@@ -683,16 +712,6 @@ def partition_suite_by_case(suite):
             for item in test_group:
                 groups.extend(partition_suite_by_case(item))
     return groups
-
-
-def setup_databases(*args, **kwargs):
-    warnings.warn(
-        '`django.test.runner.setup_databases()` has moved to '
-        '`django.test.utils.setup_databases()`.',
-        RemovedInDjango21Warning,
-        stacklevel=2,
-    )
-    return _setup_databases(*args, **kwargs)
 
 
 def filter_tests_by_tags(suite, tags, exclude_tags):

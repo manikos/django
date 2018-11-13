@@ -7,24 +7,24 @@ from django.db.models.query import QuerySet
 
 
 class BaseManager:
-    # Tracks each time a Manager instance is created. Used to retain order.
+    # To retain order, track each time a Manager instance is created.
     creation_counter = 0
 
     # Set to True for the 'objects' managers that are automatically created.
     auto_created = False
 
     #: If set to True the manager will be serialized into migrations and will
-    #: thus be available in e.g. RunPython operations
+    #: thus be available in e.g. RunPython operations.
     use_in_migrations = False
 
     def __new__(cls, *args, **kwargs):
-        # We capture the arguments to make returning them trivial
-        obj = super(BaseManager, cls).__new__(cls)
+        # Capture the arguments to make returning them trivial.
+        obj = super().__new__(cls)
         obj._constructor_args = (args, kwargs)
         return obj
 
     def __init__(self):
-        super(BaseManager, self).__init__()
+        super().__init__()
         self._set_creation_counter()
         self.model = None
         self.name = None
@@ -32,15 +32,15 @@ class BaseManager:
         self._hints = {}
 
     def __str__(self):
-        """ Return "app_label.model_label.manager_name". """
+        """Return "app_label.model_label.manager_name"."""
         return '%s.%s' % (self.model._meta.label, self.name)
 
     def deconstruct(self):
         """
-        Returns a 5-tuple of the form (as_manager (True), manager_class,
+        Return a 5-tuple of the form (as_manager (True), manager_class,
         queryset_class, args, kwargs).
 
-        Raises a ValueError if the manager is dynamically generated.
+        Raise a ValueError if the manager is dynamically generated.
         """
         qs_class = self._queryset_class
         if getattr(self, '_built_with_as_manager', False):
@@ -101,15 +101,13 @@ class BaseManager:
     def from_queryset(cls, queryset_class, class_name=None):
         if class_name is None:
             class_name = '%sFrom%s' % (cls.__name__, queryset_class.__name__)
-        class_dict = {
+        return type(class_name, (cls,), {
             '_queryset_class': queryset_class,
-        }
-        class_dict.update(cls._get_queryset_methods(queryset_class))
-        return type(class_name, (cls,), class_dict)
+            **cls._get_queryset_methods(queryset_class),
+        })
 
     def contribute_to_class(self, model, name):
-        if not self.name:
-            self.name = name
+        self.name = self.name or name
         self.model = model
 
         setattr(model, name, ManagerDescriptor(self))
@@ -118,7 +116,7 @@ class BaseManager:
 
     def _set_creation_counter(self):
         """
-        Sets the creation counter value for this instance and increments the
+        Set the creation counter value for this instance and increment the
         class-level copy.
         """
         self.creation_counter = BaseManager.creation_counter
@@ -140,8 +138,8 @@ class BaseManager:
 
     def get_queryset(self):
         """
-        Returns a new QuerySet object.  Subclasses can override this method to
-        easily customize the behavior of the Manager.
+        Return a new QuerySet object. Subclasses can override this method to
+        customize the behavior of the Manager.
         """
         return self._queryset_class(model=self.model, using=self._db, hints=self._hints)
 
@@ -196,8 +194,8 @@ class ManagerDescriptor:
 
 class EmptyManager(Manager):
     def __init__(self, model):
-        super(EmptyManager, self).__init__()
+        super().__init__()
         self.model = model
 
     def get_queryset(self):
-        return super(EmptyManager, self).get_queryset().none()
+        return super().get_queryset().none()

@@ -1,7 +1,7 @@
 import datetime
 
 from django.db import DJANGO_VERSION_PICKLE_KEY, models
-from django.utils.translation import ugettext_lazy as _
+from django.utils.translation import gettext_lazy as _
 
 
 def standalone_number():
@@ -16,14 +16,14 @@ class Numbers:
 
 class PreviousDjangoVersionQuerySet(models.QuerySet):
     def __getstate__(self):
-        state = super(PreviousDjangoVersionQuerySet, self).__getstate__()
+        state = super().__getstate__()
         state[DJANGO_VERSION_PICKLE_KEY] = '1.0'
         return state
 
 
 class MissingDjangoVersionQuerySet(models.QuerySet):
     def __getstate__(self):
-        state = super(MissingDjangoVersionQuerySet, self).__getstate__()
+        state = super().__getstate__()
         del state[DJANGO_VERSION_PICKLE_KEY]
         return state
 
@@ -45,6 +45,7 @@ class Happening(models.Model):
     name = models.CharField(blank=True, max_length=100, default="test")
     number1 = models.IntegerField(blank=True, default=standalone_number)
     number2 = models.IntegerField(blank=True, default=Numbers.get_static_number)
+    event = models.OneToOneField(Event, models.CASCADE, null=True)
 
 
 class Container:

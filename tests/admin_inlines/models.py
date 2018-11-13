@@ -53,7 +53,11 @@ class NonAutoPKBook(models.Model):
             test_pk = random.randint(1, 99999)
             if not NonAutoPKBook.objects.filter(rand_pk=test_pk).exists():
                 self.rand_pk = test_pk
-        super(NonAutoPKBook, self).save(*args, **kwargs)
+        super().save(*args, **kwargs)
+
+
+class NonAutoPKBookChild(NonAutoPKBook):
+    pass
 
 
 class EditablePKBook(models.Model):
@@ -155,6 +159,12 @@ class Novel(models.Model):
     name = models.CharField(max_length=40)
 
 
+class NovelReadonlyChapter(Novel):
+
+    class Meta:
+        proxy = True
+
+
 class Chapter(models.Model):
     name = models.CharField(max_length=40)
     novel = models.ForeignKey(Novel, models.CASCADE)
@@ -244,6 +254,7 @@ class SomeChildModel(models.Model):
     name = models.CharField(max_length=1)
     position = models.PositiveIntegerField()
     parent = models.ForeignKey(SomeParentModel, models.CASCADE)
+    readonly_field = models.CharField(max_length=1)
 
 # Other models
 

@@ -3,24 +3,19 @@ import codecs
 import re
 from io import BytesIO
 
-from django import http
 from django.conf import settings
 from django.core import signals
 from django.core.handlers import base
+from django.http import HttpRequest, QueryDict, parse_cookie
 from django.urls import set_script_prefix
-from django.utils.encoding import force_text, repercent_broken_unicode
+from django.utils.encoding import repercent_broken_unicode
 from django.utils.functional import cached_property
-
-ISO_8859_1, UTF_8 = 'iso-8859-1', 'utf-8'
 
 _slashes_re = re.compile(br'/+')
 
 
 class LimitedStream:
-    '''
-    LimitedStream wraps another stream in order to not allow reading from it
-    past specified amount of bytes.
-    '''
+    """Wrap another stream to disallow reading it past a number of bytes."""
     def __init__(self, stream, limit, buf_size=64 * 1024 * 1024):
         self.stream = stream
         self.remaining = limit
@@ -68,21 +63,17 @@ class LimitedStream:
         return line
 
 
-class WSGIRequest(http.HttpRequest):
+class WSGIRequest(HttpRequest):
     def __init__(self, environ):
         script_name = get_script_name(environ)
-        path_info = get_path_info(environ)
-        if not path_info:
-            # Sometimes PATH_INFO exists, but is empty (e.g. accessing
-            # the SCRIPT_NAME URL without a trailing slash). We really need to
-            # operate as if they'd requested '/'. Not amazingly nice to force
-            # the path like this, but should be harmless.
-            path_info = '/'
+        # If PATH_INFO is empty (e.g. accessing the SCRIPT_NAME URL without a
+        # trailing slash), operate as if '/' was requested.
+        path_info = get_path_info(environ) or '/'
         self.environ = environ
         self.path_info = path_info
         # be careful to only replace the first slash in the path because of
         # http://test/something and http://test//something being different as
-        # stated in http://www.ietf.org/rfc/rfc2396.txt
+        # stated in https://www.ietf.org/rfc/rfc2396.txt
         self.path = '%s/%s' % (script_name.rstrip('/'),
                                path_info.replace('/', '', 1))
         self.META = environ
@@ -97,7 +88,6 @@ class WSGIRequest(http.HttpRequest):
                 pass
             else:
                 self.encoding = self.content_params['charset']
-        self._post_parse_error = False
         try:
             content_length = int(environ.get('CONTENT_LENGTH'))
         except (ValueError, TypeError):
@@ -113,7 +103,7 @@ class WSGIRequest(http.HttpRequest):
     def GET(self):
         # The WSGI spec says 'QUERY_STRING' may be absent.
         raw_query_string = get_bytes_from_wsgi(self.environ, 'QUERY_STRING', '')
-        return http.QueryDict(raw_query_string, encoding=self._encoding)
+        return QueryDict(raw_query_string, encoding=self._encoding)
 
     def _get_post(self):
         if not hasattr(self, '_post'):
@@ -126,7 +116,7 @@ class WSGIRequest(http.HttpRequest):
     @cached_property
     def COOKIES(self):
         raw_cookie = get_str_from_wsgi(self.environ, 'HTTP_COOKIE', '')
-        return http.parse_cookie(raw_cookie)
+        return parse_cookie(raw_cookie)
 
     @property
     def FILES(self):
@@ -141,7 +131,7 @@ class WSGIHandler(base.BaseHandler):
     request_class = WSGIRequest
 
     def __init__(self, *args, **kwargs):
-        super(WSGIHandler, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.load_middleware()
 
     def __call__(self, environ, start_response):
@@ -153,9 +143,10 @@ class WSGIHandler(base.BaseHandler):
         response._handler_class = self.__class__
 
         status = '%d %s' % (response.status_code, response.reason_phrase)
-        response_headers = list(response.items())
-        for c in response.cookies.values():
-            response_headers.append(('Set-Cookie', c.output(header='')))
+        response_headers = [
+            *response.items(),
+            *(('Set-Cookie', c.output(header='')) for c in response.cookies.values()),
+        ]
         start_response(status, response_headers)
         if getattr(response, 'file_to_stream', None) is not None and environ.get('wsgi.file_wrapper'):
             response = environ['wsgi.file_wrapper'](response.file_to_stream)
@@ -163,33 +154,29 @@ class WSGIHandler(base.BaseHandler):
 
 
 def get_path_info(environ):
-    """
-    Returns the HTTP request's PATH_INFO as a unicode string.
-    """
+    """Return the HTTP request's PATH_INFO as a string."""
     path_info = get_bytes_from_wsgi(environ, 'PATH_INFO', '/')
 
-    return repercent_broken_unicode(path_info).decode(UTF_8)
+    return repercent_broken_unicode(path_info).decode()
 
 
 def get_script_name(environ):
     """
-    Returns the equivalent of the HTTP request's SCRIPT_NAME environment
-    variable. If Apache mod_rewrite has been used, returns what would have been
+    Return the equivalent of the HTTP request's SCRIPT_NAME environment
+    variable. If Apache mod_rewrite is used, return what would have been
     the script name prior to any rewriting (so it's the script name as seen
     from the client's perspective), unless the FORCE_SCRIPT_NAME setting is
     set (to anything).
     """
     if settings.FORCE_SCRIPT_NAME is not None:
-        return force_text(settings.FORCE_SCRIPT_NAME)
+        return settings.FORCE_SCRIPT_NAME
 
     # If Apache's mod_rewrite had a whack at the URL, Apache set either
     # SCRIPT_URL or REDIRECT_URL to the full resource URL before applying any
     # rewrites. Unfortunately not every Web server (lighttpd!) passes this
     # information through all the time, so FORCE_SCRIPT_NAME, above, is still
     # needed.
-    script_url = get_bytes_from_wsgi(environ, 'SCRIPT_URL', '')
-    if not script_url:
-        script_url = get_bytes_from_wsgi(environ, 'REDIRECT_URL', '')
+    script_url = get_bytes_from_wsgi(environ, 'SCRIPT_URL', '') or get_bytes_from_wsgi(environ, 'REDIRECT_URL', '')
 
     if script_url:
         if b'//' in script_url:
@@ -201,7 +188,7 @@ def get_script_name(environ):
     else:
         script_name = get_bytes_from_wsgi(environ, 'SCRIPT_NAME', '')
 
-    return script_name.decode(UTF_8)
+    return script_name.decode()
 
 
 def get_bytes_from_wsgi(environ, key, default):
@@ -214,7 +201,7 @@ def get_bytes_from_wsgi(environ, key, default):
     # Non-ASCII values in the WSGI environ are arbitrarily decoded with
     # ISO-8859-1. This is wrong for Django websites where UTF-8 is the default.
     # Re-encode to recover the original bytestring.
-    return value.encode(ISO_8859_1)
+    return value.encode('iso-8859-1')
 
 
 def get_str_from_wsgi(environ, key, default):
@@ -224,4 +211,4 @@ def get_str_from_wsgi(environ, key, default):
     key and default should be str objects.
     """
     value = get_bytes_from_wsgi(environ, key, default)
-    return value.decode(UTF_8, errors='replace')
+    return value.decode(errors='replace')

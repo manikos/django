@@ -1,10 +1,8 @@
 import hashlib
-import json
 import os
 
 from django.core.files.uploadedfile import UploadedFile
-from django.http import HttpResponse, HttpResponseServerError
-from django.utils.encoding import force_bytes, force_text
+from django.http import HttpResponse, HttpResponseServerError, JsonResponse
 
 from .models import FileModel
 from .tests import UNICODE_FILENAME, UPLOAD_TO
@@ -43,7 +41,7 @@ def file_upload_view_verify(request):
         if isinstance(value, UploadedFile):
             new_hash = hashlib.sha1(value.read()).hexdigest()
         else:
-            new_hash = hashlib.sha1(force_bytes(value)).hexdigest()
+            new_hash = hashlib.sha1(value.encode()).hexdigest()
         if new_hash != submitted_hash:
             return HttpResponseServerError()
 
@@ -89,7 +87,7 @@ def file_upload_echo(request):
     Simple view to echo back info about uploaded files for tests.
     """
     r = {k: f.name for k, f in request.FILES.items()}
-    return HttpResponse(json.dumps(r))
+    return JsonResponse(r)
 
 
 def file_upload_echo_content(request):
@@ -98,9 +96,9 @@ def file_upload_echo_content(request):
     """
     def read_and_close(f):
         with f:
-            return f.read().decode('utf-8')
+            return f.read().decode()
     r = {k: read_and_close(f) for k, f in request.FILES.items()}
-    return HttpResponse(json.dumps(r))
+    return JsonResponse(r)
 
 
 def file_upload_quota(request):
@@ -126,9 +124,9 @@ def file_upload_getlist_count(request):
     """
     file_counts = {}
 
-    for key in request.FILES.keys():
+    for key in request.FILES:
         file_counts[key] = len(request.FILES.getlist(key))
-    return HttpResponse(json.dumps(file_counts))
+    return JsonResponse(file_counts)
 
 
 def file_upload_errors(request):
@@ -152,8 +150,8 @@ def file_upload_content_type_extra(request):
     """
     params = {}
     for file_name, uploadedfile in request.FILES.items():
-        params[file_name] = {k: force_text(v) for k, v in uploadedfile.content_type_extra.items()}
-    return HttpResponse(json.dumps(params))
+        params[file_name] = {k: v.decode() for k, v in uploadedfile.content_type_extra.items()}
+    return JsonResponse(params)
 
 
 def file_upload_fd_closing(request, access):

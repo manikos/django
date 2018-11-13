@@ -18,9 +18,8 @@ import time
 from django.utils.dates import (
     MONTHS, MONTHS_3, MONTHS_ALT, MONTHS_AP, WEEKDAYS, WEEKDAYS_ABBR,
 )
-from django.utils.encoding import force_text
 from django.utils.timezone import get_default_timezone, is_aware, is_naive
-from django.utils.translation import ugettext as _
+from django.utils.translation import gettext as _
 
 re_formatchars = re.compile(r'(?<!\\)([aAbBcdDeEfFgGhHiIjlLmMnNoOPrsStTUuwWyYzZ])')
 re_escaped = re.compile(r'\\(.)')
@@ -29,14 +28,14 @@ re_escaped = re.compile(r'\\(.)')
 class Formatter:
     def format(self, formatstr):
         pieces = []
-        for i, piece in enumerate(re_formatchars.split(force_text(formatstr))):
+        for i, piece in enumerate(re_formatchars.split(str(formatstr))):
             if i % 2:
                 if type(self.data) is datetime.date and hasattr(TimeFormat, piece):
                     raise TypeError(
                         "The format for date objects may not contain "
                         "time-related format specifiers (found '%s')." % piece
                     )
-                pieces.append(force_text(getattr(self, piece)()))
+                pieces.append(str(getattr(self, piece)()))
             elif piece:
                 pieces.append(re_escaped.sub(r'\1', piece))
         return ''.join(pieces)
@@ -77,17 +76,14 @@ class TimeFormat(Formatter):
         """
         Timezone name.
 
-        If timezone information is not available, this method returns
-        an empty string.
+        If timezone information is not available, return an empty string.
         """
         if not self.timezone:
             return ""
 
         try:
             if hasattr(self.data, 'tzinfo') and self.data.tzinfo:
-                # Have to use tzinfo.tzname and not datetime.tzname
-                # because datatime.tzname does not expect Unicode
-                return self.data.tzinfo.tzname(self.data) or ""
+                return self.data.tzname() or ''
         except NotImplementedError:
             pass
         return ""
@@ -131,8 +127,7 @@ class TimeFormat(Formatter):
         """
         Difference to Greenwich time in hours; e.g. '+0200', '-0430'.
 
-        If timezone information is not available, this method returns
-        an empty string.
+        If timezone information is not available, return an empty string.
         """
         if not self.timezone:
             return ""
@@ -165,8 +160,7 @@ class TimeFormat(Formatter):
         """
         Time zone of this machine; e.g. 'EST' or 'MDT'.
 
-        If timezone information is not available, this method returns
-        an empty string.
+        If timezone information is not available, return an empty string.
         """
         if not self.timezone:
             return ""
@@ -193,8 +187,7 @@ class TimeFormat(Formatter):
         timezones west of UTC is always negative, and for those east of UTC is
         always positive.
 
-        If timezone information is not available, this method returns
-        an empty string.
+        If timezone information is not available, return an empty string.
         """
         if not self.timezone:
             return ""
@@ -324,7 +317,6 @@ class DateFormat(TimeFormat):
     def W(self):
         "ISO-8601 week number of year, weeks starting on Monday"
         # Algorithm from http://www.personal.ecu.edu/mccartyr/ISOwdALG.txt
-        week_number = None
         jan1_weekday = self.data.replace(month=1, day=1).weekday() + 1
         weekday = self.data.weekday() + 1
         day_of_year = self.z()

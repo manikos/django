@@ -99,7 +99,7 @@ class FileSystemLoaderTests(SimpleTestCase):
     @classmethod
     def setUpClass(cls):
         cls.engine = Engine(dirs=[TEMPLATE_DIR], loaders=['django.template.loaders.filesystem.Loader'])
-        super(FileSystemLoaderTests, cls).setUpClass()
+        super().setUpClass()
 
     @contextmanager
     def set_dirs(self, dirs):
@@ -156,24 +156,17 @@ class FileSystemLoaderTests(SimpleTestCase):
 
     def test_unicode_template_name(self):
         with self.source_checker(['/dir1', '/dir2']) as check_sources:
-            # UTF-8 bytestrings are permitted.
-            check_sources(b'\xc3\x85ngstr\xc3\xb6m', ['/dir1/Ångström', '/dir2/Ångström'])
-            # Unicode strings are permitted.
             check_sources('Ångström', ['/dir1/Ångström', '/dir2/Ångström'])
 
-    def test_utf8_bytestring(self):
-        """
-        Invalid UTF-8 encoding in bytestrings should raise a useful error
-        """
-        engine = self.engine
-        loader = engine.template_loaders[0]
-        with self.assertRaises(UnicodeDecodeError):
-            list(loader.get_template_sources(b'\xc3\xc3'))
+    def test_bytestring(self):
+        loader = self.engine.template_loaders[0]
+        msg = "Can't mix strings and bytes in path components"
+        with self.assertRaisesMessage(TypeError, msg):
+            list(loader.get_template_sources(b'\xc3\x85ngstr\xc3\xb6m'))
 
     def test_unicode_dir_name(self):
-        with self.source_checker([b'/Stra\xc3\x9fe']) as check_sources:
+        with self.source_checker(['/Straße']) as check_sources:
             check_sources('Ångström', ['/Straße/Ångström'])
-            check_sources(b'\xc3\x85ngstr\xc3\xb6m', ['/Straße/Ångström'])
 
     @unittest.skipUnless(
         os.path.normcase('/TEST') == os.path.normpath('/test'),
@@ -213,7 +206,7 @@ class AppDirectoriesLoaderTests(SimpleTestCase):
         cls.engine = Engine(
             loaders=['django.template.loaders.app_directories.Loader'],
         )
-        super(AppDirectoriesLoaderTests, cls).setUpClass()
+        super().setUpClass()
 
     @override_settings(INSTALLED_APPS=['template_tests'])
     def test_get_template(self):
@@ -237,7 +230,7 @@ class LocmemLoaderTests(SimpleTestCase):
                 'index.html': 'index',
             })],
         )
-        super(LocmemLoaderTests, cls).setUpClass()
+        super().setUpClass()
 
     def test_get_template(self):
         template = self.engine.get_template('index.html')

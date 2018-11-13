@@ -8,6 +8,7 @@ from django.contrib.gis.db.models.functions import (
 from django.contrib.gis.geos import GEOSGeometry, LineString, Point, Polygon
 from django.test import TestCase, skipUnlessDBFeature
 
+from ..utils import FuncTestMixin
 from .models import (
     City3D, Interstate2D, Interstate3D, InterstateProj2D, InterstateProj3D,
     MultiPoint3D, Point2D, Point3D, Polygon2D, Polygon3D,
@@ -93,7 +94,7 @@ class Geo3DLoadingHelper:
         Polygon3D.objects.create(name='3D BBox', poly=bbox_3d)
 
 
-@skipUnlessDBFeature("gis_enabled", "supports_3d_storage")
+@skipUnlessDBFeature("supports_3d_storage")
 class Geo3DTest(Geo3DLoadingHelper, TestCase):
     """
     Only a subset of the PostGIS routines are 3D-enabled, and this TestCase
@@ -101,7 +102,7 @@ class Geo3DTest(Geo3DLoadingHelper, TestCase):
     available within GeoDjango.  For more information, see the PostGIS docs
     on the routines that support 3D:
 
-    http://postgis.net/docs/PostGIS_Special_Functions_Index.html#PostGIS_3D_Functions
+    https://postgis.net/docs/PostGIS_Special_Functions_Index.html#PostGIS_3D_Functions
     """
 
     def test_3d_hasz(self):
@@ -184,7 +185,7 @@ class Geo3DTest(Geo3DLoadingHelper, TestCase):
         union = City3D.objects.aggregate(Union('point'))['point__union']
         self.assertTrue(union.hasz)
         # Ordering of points in the resulting geometry may vary between implementations
-        self.assertSetEqual({p.ewkt for p in ref_union}, {p.ewkt for p in union})
+        self.assertEqual({p.ewkt for p in ref_union}, {p.ewkt for p in union})
 
     @skipUnlessDBFeature("supports_3d_functions")
     def test_extent(self):
@@ -204,8 +205,8 @@ class Geo3DTest(Geo3DLoadingHelper, TestCase):
         self.assertIsNone(City3D.objects.none().aggregate(Extent3D('point'))['point__extent3d'])
 
 
-@skipUnlessDBFeature("gis_enabled", "supports_3d_functions")
-class Geo3DFunctionsTests(Geo3DLoadingHelper, TestCase):
+@skipUnlessDBFeature("supports_3d_functions")
+class Geo3DFunctionsTests(FuncTestMixin, Geo3DLoadingHelper, TestCase):
     def test_kml(self):
         """
         Test KML() function with Z values.

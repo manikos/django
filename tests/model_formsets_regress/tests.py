@@ -291,7 +291,7 @@ class FormsetTests(TestCase):
         data = {'test-TOTAL_FORMS': '1',
                 'test-INITIAL_FORMS': '0',
                 'test-MAX_NUM_FORMS': '',
-                'test-0-name': 'Random Place', }
+                'test-0-name': 'Random Place'}
         with self.assertNumQueries(1):
             formset = Formset(data, prefix="test")
             formset.save()
@@ -362,8 +362,7 @@ class FormfieldCallbackTests(TestCase):
 
     def test_modelformset_custom_callback(self):
         callback = Callback()
-        modelformset_factory(UserSite, form=UserSiteForm,
-                             formfield_callback=callback)
+        modelformset_factory(UserSite, form=UserSiteForm, formfield_callback=callback)
         self.assertCallbackCalled(callback)
 
 
@@ -375,7 +374,7 @@ class BaseCustomDeleteFormSet(BaseFormSet):
     form.should_delete() is called. The formset delete field is also suppressed.
     """
     def add_fields(self, form, index):
-        super(BaseCustomDeleteFormSet, self).add_fields(form, index)
+        super().add_fields(form, index)
         self.can_delete = True
         if DELETION_FIELD_NAME in form.fields:
             del form.fields[DELETION_FIELD_NAME]

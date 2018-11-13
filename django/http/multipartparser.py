@@ -7,7 +7,6 @@ file upload handlers for processing.
 import base64
 import binascii
 import cgi
-import sys
 from urllib.parse import unquote
 
 from django.conf import settings
@@ -17,7 +16,6 @@ from django.core.exceptions import (
 from django.core.files.uploadhandler import (
     SkipFile, StopFutureHandlers, StopUpload,
 )
-from django.utils import six
 from django.utils.datastructures import MultiValueDict
 from django.utils.encoding import force_text
 from django.utils.text import unescape_entities
@@ -71,7 +69,7 @@ class MultiPartParser:
         ctypes, opts = parse_header(content_type.encode('ascii'))
         boundary = opts.get('boundary')
         if not boundary or not cgi.valid_boundary(boundary):
-            raise MultiPartParserError('Invalid boundary in multipart: %s' % boundary)
+            raise MultiPartParserError('Invalid boundary in multipart: %s' % boundary.decode())
 
         # Content-Length should contain the length of the body we are about
         # to receive.
@@ -247,10 +245,9 @@ class MultiPartParser:
 
                                 try:
                                     chunk = base64.b64decode(stripped_chunk)
-                                except Exception as e:
+                                except Exception as exc:
                                     # Since this is only a chunk, any error is an unfixable error.
-                                    msg = "Could not decode base64 data: %r" % e
-                                    six.reraise(MultiPartParserError, MultiPartParserError(msg), sys.exc_info()[2])
+                                    raise MultiPartParserError("Could not decode base64 data.") from exc
 
                             for i, handler in enumerate(handlers):
                                 chunk_length = len(chunk)
@@ -280,11 +277,8 @@ class MultiPartParser:
             exhaust(self._input_data)
 
         # Signal that the upload has completed.
-        for handler in handlers:
-            retval = handler.upload_complete()
-            if retval:
-                break
-
+        # any() shortcircuits if a handler's upload_complete() returns a value.
+        any(handler.upload_complete() for handler in handlers)
         self._post._mutable = False
         return self._post, self._files
 
@@ -369,9 +363,8 @@ class LazyStream:
         """
         Used when the exact number of bytes to read is unimportant.
 
-        This procedure just returns whatever is chunk is conveniently returned
-        from the iterator instead. Useful to avoid unnecessary bookkeeping if
-        performance is an issue.
+        Return whatever chunk is conveniently returned from the iterator.
+        Useful to avoid unnecessary bookkeeping if performance is an issue.
         """
         if self._leftover:
             output = self._leftover
@@ -386,7 +379,7 @@ class LazyStream:
         """
         Used to invalidate/disable this lazy stream.
 
-        Replaces the producer with an empty list. Any leftover bytes that have
+        Replace the producer with an empty list. Any leftover bytes that have
         already been read will still be reported upon read() and/or next().
         """
         self._producer = []
@@ -396,7 +389,7 @@ class LazyStream:
 
     def unget(self, bytes):
         """
-        Places bytes back onto the front of the lazy stream.
+        Place bytes back onto the front of the lazy stream.
 
         Future calls to read() will return those bytes first. The
         stream position and thus tell() will be rewound.
@@ -405,11 +398,11 @@ class LazyStream:
             return
         self._update_unget_history(len(bytes))
         self.position -= len(bytes)
-        self._leftover = b''.join([bytes, self._leftover])
+        self._leftover = bytes + self._leftover
 
     def _update_unget_history(self, num_bytes):
         """
-        Updates the unget history as a sanity check to see if we've pushed
+        Update the unget history as a sanity check to see if we've pushed
         back the same number of bytes in one chunk. If we keep ungetting the
         same number of bytes many times (here, 50), we're mostly likely in an
         infinite loop of some sort. This is usually caused by a
@@ -432,8 +425,7 @@ class LazyStream:
 class ChunkIter:
     """
     An iterable that will yield chunks of data. Given a file-like object as the
-    constructor, this object will yield chunks of read operations from that
-    object.
+    constructor, yield chunks of read operations from that object.
     """
     def __init__(self, flo, chunk_size=64 * 1024):
         self.flo = flo
@@ -524,7 +516,7 @@ class BoundaryIter:
             raise StopIteration()
 
         chunk = b''.join(chunks)
-        boundary = self._find_boundary(chunk, len(chunk) < self._rollback)
+        boundary = self._find_boundary(chunk)
 
         if boundary:
             end, next = boundary
@@ -542,13 +534,12 @@ class BoundaryIter:
                 stream.unget(chunk[-rollback:])
                 return chunk[:-rollback]
 
-    def _find_boundary(self, data, eof=False):
+    def _find_boundary(self, data):
         """
-        Finds a multipart boundary in data.
+        Find a multipart boundary in data.
 
-        Should no boundary exist in the data None is returned instead. Otherwise
-        a tuple containing the indices of the following are returned:
-
+        Should no boundary exist in the data, return None. Otherwise, return
+        a tuple containing the indices of the following:
          * the end of current encapsulation
          * the start of the next encapsulation
         """
@@ -569,19 +560,11 @@ class BoundaryIter:
 
 
 def exhaust(stream_or_iterable):
-    """
-    Completely exhausts an iterator or stream.
-
-    Raise a MultiPartParserError if the argument is not a stream or an iterable.
-    """
-    iterator = None
+    """Exhaust an iterator or stream."""
     try:
         iterator = iter(stream_or_iterable)
     except TypeError:
         iterator = ChunkIter(stream_or_iterable, 16384)
-
-    if iterator is None:
-        raise MultiPartParserError('multipartparser.exhaust() was passed a non-iterable or stream parameter')
 
     for __ in iterator:
         pass
@@ -589,7 +572,7 @@ def exhaust(stream_or_iterable):
 
 def parse_boundary_stream(stream, max_header_size):
     """
-    Parses one and exactly one stream that encapsulates a boundary.
+    Parse one and exactly one stream that encapsulates a boundary.
     """
     # Stream at beginning of header, look for end of header
     # and parse it if found. The header must fit within one
@@ -662,7 +645,7 @@ def parse_header(line):
     """
     Parse the header into a key-value.
 
-    Input (line): bytes, output: unicode for key/name, bytes for value which
+    Input (line): bytes, output: str for key/name, bytes for values which
     will be decoded later.
     """
     plist = _parse_header_params(b';' + line)

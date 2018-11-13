@@ -1,3 +1,5 @@
+import uuid
+
 from django.contrib.auth.models import User
 from django.db import models
 
@@ -27,6 +29,7 @@ class Band(models.Model):
 
 class Album(models.Model):
     band = models.ForeignKey(Band, models.CASCADE)
+    featuring = models.ManyToManyField(Band, related_name='featured')
     name = models.CharField(max_length=100)
     cover_art = models.FileField(upload_to='albums')
     backside_art = MyFileField(upload_to='albums_back', null=True)
@@ -37,7 +40,7 @@ class Album(models.Model):
 
 class HiddenInventoryManager(models.Manager):
     def get_queryset(self):
-        return super(HiddenInventoryManager, self).get_queryset().filter(hidden=False)
+        return super().get_queryset().filter(hidden=False)
 
 
 class Inventory(models.Model):
@@ -91,6 +94,7 @@ class CarTire(models.Model):
 
 
 class Honeycomb(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     location = models.CharField(max_length=20)
 
 

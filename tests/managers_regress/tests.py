@@ -2,7 +2,6 @@ from django.db import models
 from django.template import Context, Template
 from django.test import TestCase, override_settings
 from django.test.utils import isolate_apps
-from django.utils.encoding import force_text
 
 from .models import (
     AbstractBase1, AbstractBase2, AbstractBase3, Child1, Child2, Child3,
@@ -66,7 +65,7 @@ class ManagersRegressionTests(TestCase):
             AbstractBase3.objects.all()
 
     def test_custom_abstract_manager(self):
-        # Accessing the manager on an abstract model with an custom
+        # Accessing the manager on an abstract model with a custom
         # manager should raise an attribute error with an appropriate
         # message.
         msg = "Manager isn't available; AbstractBase2 is abstract"
@@ -148,7 +147,7 @@ class ManagersRegressionTests(TestCase):
 
         self.assertEqual(
             t.render(Context({'related': related})),
-            ''.join([force_text(relation.pk)] * 3),
+            ''.join([str(relation.pk)] * 3),
         )
 
     def test_field_can_be_called_exact(self):

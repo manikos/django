@@ -1,11 +1,13 @@
 import datetime
 import json
+import mimetypes
+import os
 import re
 import sys
 import time
 from email.header import Header
 from http.client import responses
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from django.conf import settings
 from django.core import signals, signing
@@ -13,8 +15,8 @@ from django.core.exceptions import DisallowedRedirect
 from django.core.serializers.json import DjangoJSONEncoder
 from django.http.cookie import SimpleCookie
 from django.utils import timezone
-from django.utils.encoding import force_bytes, force_text, iri_to_uri
-from django.utils.http import cookie_date
+from django.utils.encoding import iri_to_uri
+from django.utils.http import http_date
 
 _charset_from_content_type_re = re.compile(r';\s*charset=(?P<charset>[^\s;]+)', re.I)
 
@@ -34,7 +36,7 @@ class HttpResponseBase:
     status_code = 200
 
     def __init__(self, content_type=None, status=None, reason=None, charset=None):
-        # _headers is a mapping of the lower-case name to the original case of
+        # _headers is a mapping of the lowercase name to the original case of
         # the header (required for working with legacy systems) and the header
         # value. Both the name of the header and its value are ASCII strings.
         self._headers = {}
@@ -92,7 +94,7 @@ class HttpResponseBase:
             return val if isinstance(val, bytes) else val.encode(encoding)
 
         headers = [
-            (b': '.join([to_bytes(key, 'ascii'), to_bytes(value, 'latin-1')]))
+            (to_bytes(key, 'ascii') + b': ' + to_bytes(value, 'latin-1'))
             for key, value in self._headers.values()
         ]
         return b'\r\n'.join(headers)
@@ -104,11 +106,11 @@ class HttpResponseBase:
         return ', "%s"' % self['Content-Type'] if 'Content-Type' in self else ''
 
     def _convert_to_charset(self, value, charset, mime_encode=False):
-        """Converts headers key/value to ascii/latin-1 native strings.
+        """
+        Convert headers key/value to ascii/latin-1 native strings.
 
         `charset` must be 'ascii' or 'latin-1'. If `mime_encode` is True and
-        `value` can't be represented in the given charset, MIME-encoding
-        is applied.
+        `value` can't be represented in the given charset, apply MIME-encoding.
         """
         if not isinstance(value, (bytes, str)):
             value = str(value)
@@ -136,10 +138,7 @@ class HttpResponseBase:
         self._headers[header.lower()] = (header, value)
 
     def __delitem__(self, header):
-        try:
-            del self._headers[header.lower()]
-        except KeyError:
-            pass
+        self._headers.pop(header.lower(), False)
 
     def __getitem__(self, header):
         return self._headers[header.lower()][1]
@@ -157,15 +156,15 @@ class HttpResponseBase:
         return self._headers.get(header.lower(), (None, alternate))[1]
 
     def set_cookie(self, key, value='', max_age=None, expires=None, path='/',
-                   domain=None, secure=False, httponly=False):
+                   domain=None, secure=False, httponly=False, samesite=None):
         """
-        Sets a cookie.
+        Set a cookie.
 
         ``expires`` can be:
         - a string in the correct format,
         - a naive ``datetime.datetime`` object in UTC,
         - an aware ``datetime.datetime`` object in any time zone.
-        If it is a ``datetime.datetime`` object then ``max_age`` will be calculated.
+        If it is a ``datetime.datetime`` object then calculate ``max_age``.
         """
         self.cookies[key] = value
         if expires is not None:
@@ -188,8 +187,7 @@ class HttpResponseBase:
             self.cookies[key]['max-age'] = max_age
             # IE requires expires, so set it if hasn't been already.
             if not expires:
-                self.cookies[key]['expires'] = cookie_date(time.time() +
-                                                           max_age)
+                self.cookies[key]['expires'] = http_date(time.time() + max_age)
         if path is not None:
             self.cookies[key]['path'] = path
         if domain is not None:
@@ -198,9 +196,13 @@ class HttpResponseBase:
             self.cookies[key]['secure'] = True
         if httponly:
             self.cookies[key]['httponly'] = True
+        if samesite:
+            if samesite.lower() not in ('lax', 'strict'):
+                raise ValueError('samesite must be "lax" or "strict".')
+            self.cookies[key]['samesite'] = samesite
 
     def setdefault(self, key, value):
-        """Sets a header unless it has already been set."""
+        """Set a header unless it has already been set."""
         if key not in self:
             self[key] = value
 
@@ -209,8 +211,13 @@ class HttpResponseBase:
         return self.set_cookie(key, value, **kwargs)
 
     def delete_cookie(self, key, path='/', domain=None):
-        self.set_cookie(key, max_age=0, path=path, domain=domain,
-                        expires='Thu, 01-Jan-1970 00:00:00 GMT')
+        # Most browsers ignore the Set-Cookie header if the cookie name starts
+        # with __Host- or __Secure- and the cookie doesn't use the secure flag.
+        secure = key.startswith(('__Secure-', '__Host-'))
+        self.set_cookie(
+            key, max_age=0, path=path, domain=domain, secure=secure,
+            expires='Thu, 01 Jan 1970 00:00:00 GMT',
+        )
 
     # Common methods used by subclasses
 
@@ -227,12 +234,11 @@ class HttpResponseBase:
             return bytes(value)
         if isinstance(value, str):
             return bytes(value.encode(self.charset))
-
-        # Handle non-string types (#16494)
-        return force_bytes(value, self.charset)
+        # Handle non-string types.
+        return str(value).encode(self.charset)
 
     # These methods partially implement the file-like object interface.
-    # See https://docs.python.org/3/library/io.html#io.IOBase
+    # See https://docs.python.org/library/io.html#io.IOBase
 
     # The WSGI server must call this method upon completion of the request.
     # See http://blog.dscpl.com.au/2012/10/obligations-for-calling-close-on.html
@@ -274,13 +280,13 @@ class HttpResponse(HttpResponseBase):
     """
     An HTTP response class with a string as content.
 
-    This content that can be read, appended to or replaced.
+    This content that can be read, appended to, or replaced.
     """
 
     streaming = False
 
     def __init__(self, content=b'', *args, **kwargs):
-        super(HttpResponse, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         # Content is a bytestring. See the `content` property methods.
         self.content = content
 
@@ -348,7 +354,7 @@ class StreamingHttpResponse(HttpResponseBase):
     streaming = True
 
     def __init__(self, streaming_content=(), *args, **kwargs):
-        super(StreamingHttpResponse, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         # `streaming_content` should be an iterable of bytestrings.
         # See the `streaming_content` property methods.
         self.streaming_content = streaming_content
@@ -387,25 +393,68 @@ class FileResponse(StreamingHttpResponse):
     """
     block_size = 4096
 
+    def __init__(self, *args, as_attachment=False, filename='', **kwargs):
+        self.as_attachment = as_attachment
+        self.filename = filename
+        super().__init__(*args, **kwargs)
+
     def _set_streaming_content(self, value):
-        if hasattr(value, 'read'):
-            self.file_to_stream = value
-            filelike = value
-            if hasattr(filelike, 'close'):
-                self._closable_objects.append(filelike)
-            value = iter(lambda: filelike.read(self.block_size), b'')
-        else:
+        if not hasattr(value, 'read'):
             self.file_to_stream = None
-        super(FileResponse, self)._set_streaming_content(value)
+            return super()._set_streaming_content(value)
+
+        self.file_to_stream = filelike = value
+        if hasattr(filelike, 'close'):
+            self._closable_objects.append(filelike)
+        value = iter(lambda: filelike.read(self.block_size), b'')
+        self.set_headers(filelike)
+        super()._set_streaming_content(value)
+
+    def set_headers(self, filelike):
+        """
+        Set some common response headers (Content-Length, Content-Type, and
+        Content-Disposition) based on the `filelike` response content.
+        """
+        encoding_map = {
+            'bzip2': 'application/x-bzip',
+            'gzip': 'application/gzip',
+            'xz': 'application/x-xz',
+        }
+        filename = getattr(filelike, 'name', None)
+        filename = filename if (isinstance(filename, str) and filename) else self.filename
+        if os.path.isabs(filename):
+            self['Content-Length'] = os.path.getsize(filelike.name)
+        elif hasattr(filelike, 'getbuffer'):
+            self['Content-Length'] = filelike.getbuffer().nbytes
+
+        if self.get('Content-Type', '').startswith(settings.DEFAULT_CONTENT_TYPE):
+            if filename:
+                content_type, encoding = mimetypes.guess_type(filename)
+                # Encoding isn't set to prevent browsers from automatically
+                # uncompressing files.
+                content_type = encoding_map.get(encoding, content_type)
+                self['Content-Type'] = content_type or 'application/octet-stream'
+            else:
+                self['Content-Type'] = 'application/octet-stream'
+
+        if self.as_attachment:
+            filename = self.filename or os.path.basename(filename)
+            if filename:
+                try:
+                    filename.encode('ascii')
+                    file_expr = 'filename="{}"'.format(filename)
+                except UnicodeEncodeError:
+                    file_expr = "filename*=utf-8''{}".format(quote(filename))
+                self['Content-Disposition'] = 'attachment; {}'.format(file_expr)
 
 
 class HttpResponseRedirectBase(HttpResponse):
     allowed_schemes = ['http', 'https', 'ftp']
 
     def __init__(self, redirect_to, *args, **kwargs):
-        super(HttpResponseRedirectBase, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self['Location'] = iri_to_uri(redirect_to)
-        parsed = urlparse(force_text(redirect_to))
+        parsed = urlparse(str(redirect_to))
         if parsed.scheme and parsed.scheme not in self.allowed_schemes:
             raise DisallowedRedirect("Unsafe redirect to URL with protocol '%s'" % parsed.scheme)
 
@@ -432,7 +481,7 @@ class HttpResponseNotModified(HttpResponse):
     status_code = 304
 
     def __init__(self, *args, **kwargs):
-        super(HttpResponseNotModified, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         del self['content-type']
 
     @HttpResponse.content.setter
@@ -458,7 +507,7 @@ class HttpResponseNotAllowed(HttpResponse):
     status_code = 405
 
     def __init__(self, permitted_methods, *args, **kwargs):
-        super(HttpResponseNotAllowed, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self['Allow'] = ', '.join(permitted_methods)
 
     def __repr__(self):
@@ -489,7 +538,7 @@ class JsonResponse(HttpResponse):
     :param data: Data to be dumped into json. By default only ``dict`` objects
       are allowed to be passed due to a security flaw before EcmaScript 5. See
       the ``safe`` parameter for more information.
-    :param encoder: Should be an json encoder class. Defaults to
+    :param encoder: Should be a json encoder class. Defaults to
       ``django.core.serializers.json.DjangoJSONEncoder``.
     :param safe: Controls if only ``dict`` objects may be serialized. Defaults
       to ``True``.
@@ -507,4 +556,4 @@ class JsonResponse(HttpResponse):
             json_dumps_params = {}
         kwargs.setdefault('content_type', 'application/json')
         data = json.dumps(data, cls=encoder, **json_dumps_params)
-        super(JsonResponse, self).__init__(content=data, **kwargs)
+        super().__init__(content=data, **kwargs)

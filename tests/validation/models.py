@@ -33,7 +33,7 @@ class ModelToValidate(models.Model):
     slug = models.SlugField(blank=True)
 
     def clean(self):
-        super(ModelToValidate, self).clean()
+        super().clean()
         if self.number == 11:
             raise ValidationError('Invalid number supplied!')
 
@@ -130,4 +130,4 @@ try:
         auto2 = models.AutoField(primary_key=True)
 except AssertionError as exc:
     assertion_error = exc
-assert str(assertion_error) == "A model can't have more than one AutoField."
+assert str(assertion_error) == "Model validation.MultipleAutoFields can't have more than one AutoField."

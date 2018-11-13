@@ -23,7 +23,7 @@ You can optionally compress the JSON prior to base64 encoding it to save
 space, using the compress=True argument. This checks if compression actually
 helps and only applies compression if the result is a shorter string:
 
->>> signing.dumps(range(1, 20), compress=True)
+>>> signing.dumps(list(range(1, 20)), compress=True)
 '.eJwFwcERACAIwLCF-rCiILN47r-GyZVJsNgkxaFxoDgxcOHGxMKD_T7vhAml:1QaUaL:BA0thEZrp4FQVXIXuOvYJtLJSrQ'
 
 The fact that the string is compressed is signalled by the prefixed '.' at the
@@ -43,23 +43,19 @@ import zlib
 from django.conf import settings
 from django.utils import baseconv
 from django.utils.crypto import constant_time_compare, salted_hmac
-from django.utils.encoding import force_bytes, force_text
+from django.utils.encoding import force_bytes
 from django.utils.module_loading import import_string
 
 _SEP_UNSAFE = re.compile(r'^[A-z0-9-_=]*$')
 
 
 class BadSignature(Exception):
-    """
-    Signature does not match
-    """
+    """Signature does not match."""
     pass
 
 
 class SignatureExpired(BadSignature):
-    """
-    Signature timestamp is older than required max_age
-    """
+    """Signature timestamp is older than required max_age."""
     pass
 
 
@@ -73,12 +69,12 @@ def b64_decode(s):
 
 
 def base64_hmac(salt, value, key):
-    return b64_encode(salted_hmac(salt, value, key).digest())
+    return b64_encode(salted_hmac(salt, value, key).digest()).decode()
 
 
 def get_cookie_signer(salt='django.core.signing.get_cookie_signer'):
     Signer = import_string(settings.SIGNING_BACKEND)
-    key = force_bytes(settings.SECRET_KEY)
+    key = force_bytes(settings.SECRET_KEY)  # SECRET_KEY may be str or bytes.
     return Signer(b'django.http.cookies' + key, salt=salt)
 
 
@@ -96,11 +92,11 @@ class JSONSerializer:
 
 def dumps(obj, key=None, salt='django.core.signing', serializer=JSONSerializer, compress=False):
     """
-    Returns URL-safe, sha1 signed base64 compressed JSON string. If key is
-    None, settings.SECRET_KEY is used instead.
+    Return URL-safe, hmac/SHA1 signed base64 compressed JSON string. If key is
+    None, use settings.SECRET_KEY instead.
 
-    If compress is True (not the default) checks if compressing using zlib can
-    save some space. Prepends a '.' to signify compression. This is included
+    If compress is True (not the default), check if compressing using zlib can
+    save some space. Prepend a '.' to signify compression. This is included
     in the signature, to protect against zip bombs.
 
     Salt can be used to namespace the hash, so that a signed string is
@@ -121,26 +117,25 @@ def dumps(obj, key=None, salt='django.core.signing', serializer=JSONSerializer, 
         if len(compressed) < (len(data) - 1):
             data = compressed
             is_compressed = True
-    base64d = b64_encode(data)
+    base64d = b64_encode(data).decode()
     if is_compressed:
-        base64d = b'.' + base64d
+        base64d = '.' + base64d
     return TimestampSigner(key, salt=salt).sign(base64d)
 
 
 def loads(s, key=None, salt='django.core.signing', serializer=JSONSerializer, max_age=None):
     """
-    Reverse of dumps(), raises BadSignature if signature fails.
+    Reverse of dumps(), raise BadSignature if signature fails.
 
     The serializer is expected to accept a bytestring.
     """
-    # TimestampSigner.unsign always returns unicode but base64 and zlib
-    # compression operate on bytes.
-    base64d = force_bytes(TimestampSigner(key, salt=salt).unsign(s, max_age=max_age))
-    decompress = False
-    if base64d[:1] == b'.':
+    # TimestampSigner.unsign() returns str but base64 and zlib compression
+    # operate on bytes.
+    base64d = TimestampSigner(key, salt=salt).unsign(s, max_age=max_age).encode()
+    decompress = base64d[:1] == b'.'
+    if decompress:
         # It's compressed; uncompress it first
         base64d = base64d[1:]
-        decompress = True
     data = b64_decode(base64d)
     if decompress:
         data = zlib.decompress(data)
@@ -161,7 +156,7 @@ class Signer:
         self.salt = salt or '%s.%s' % (self.__class__.__module__, self.__class__.__name__)
 
     def signature(self, value):
-        return force_text(base64_hmac(self.salt + 'signer', value, self.key))
+        return base64_hmac(self.salt + 'signer', value, self.key)
 
     def sign(self, value):
         return '%s%s%s' % (value, self.sep, self.signature(value))
@@ -171,7 +166,7 @@ class Signer:
             raise BadSignature('No "%s" found in value' % self.sep)
         value, sig = signed_value.rsplit(self.sep, 1)
         if constant_time_compare(sig, self.signature(value)):
-            return force_text(value)
+            return value
         raise BadSignature('Signature "%s" does not match' % sig)
 
 
@@ -181,15 +176,15 @@ class TimestampSigner(Signer):
         return baseconv.base62.encode(int(time.time()))
 
     def sign(self, value):
-        value = '%s%s%s' % (force_text(value), self.sep, self.timestamp())
-        return super(TimestampSigner, self).sign(value)
+        value = '%s%s%s' % (value, self.sep, self.timestamp())
+        return super().sign(value)
 
     def unsign(self, value, max_age=None):
         """
         Retrieve original value and check it wasn't signed more
         than max_age seconds ago.
         """
-        result = super(TimestampSigner, self).unsign(value)
+        result = super().unsign(value)
         value, timestamp = result.rsplit(self.sep, 1)
         timestamp = baseconv.base62.decode(timestamp)
         if max_age is not None:

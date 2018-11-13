@@ -7,7 +7,6 @@ import hashlib
 
 from django.template import TemplateDoesNotExist
 from django.template.backends.django import copy_exception
-from django.utils.encoding import force_bytes, force_text
 
 from .base import Loader as BaseLoader
 
@@ -18,7 +17,7 @@ class Loader(BaseLoader):
         self.template_cache = {}
         self.get_template_cache = {}
         self.loaders = engine.get_template_loaders(loaders)
-        super(Loader, self).__init__(engine)
+        super().__init__(engine)
 
     def get_contents(self, origin):
         return origin.loader.get_contents(origin)
@@ -52,7 +51,7 @@ class Loader(BaseLoader):
             return cached
 
         try:
-            template = super(Loader, self).get_template(template_name, skip)
+            template = super().get_template(template_name, skip)
         except TemplateDoesNotExist as e:
             self.get_template_cache[key] = copy_exception(e) if self.engine.debug else TemplateDoesNotExist
             raise
@@ -63,8 +62,7 @@ class Loader(BaseLoader):
 
     def get_template_sources(self, template_name):
         for loader in self.loaders:
-            for origin in loader.get_template_sources(template_name):
-                yield origin
+            yield from loader.get_template_sources(template_name)
 
     def cache_key(self, template_name, skip=None):
         """
@@ -86,10 +84,10 @@ class Loader(BaseLoader):
             if matching:
                 skip_prefix = self.generate_hash(matching)
 
-        return '-'.join(filter(bool, [force_text(template_name), skip_prefix, dirs_prefix]))
+        return '-'.join(s for s in (str(template_name), skip_prefix, dirs_prefix) if s)
 
     def generate_hash(self, values):
-        return hashlib.sha1(force_bytes('|'.join(values))).hexdigest()
+        return hashlib.sha1('|'.join(values).encode()).hexdigest()
 
     def reset(self):
         "Empty the template cache."

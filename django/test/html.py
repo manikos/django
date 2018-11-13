@@ -1,10 +1,7 @@
-"""
-Comparing two html documents.
-"""
+"""Compare two HTML documents."""
 
 import re
-
-from django.utils.html_parser import HTMLParseError, HTMLParser
+from html.parser import HTMLParser
 
 WHITESPACE = re.compile(r'\s+')
 
@@ -55,9 +52,7 @@ class Element:
                 child.finalize()
 
     def __eq__(self, element):
-        if not hasattr(element, 'name'):
-            return False
-        if hasattr(element, 'name') and self.name != element.name:
+        if not hasattr(element, 'name') or self.name != element.name:
             return False
         if len(self.attributes) != len(element.attributes):
             return False
@@ -74,12 +69,10 @@ class Element:
                     other_value = other_attr
                 if attr != other_attr or value != other_value:
                     return False
-        if self.children != element.children:
-            return False
-        return True
+        return self.children == element.children
 
     def __hash__(self):
-        return hash((self.name,) + tuple(a for a in self.attributes))
+        return hash((self.name, *(a for a in self.attributes)))
 
     def _count(self, element, count=True):
         if not isinstance(element, str):
@@ -125,7 +118,7 @@ class Element:
             output += ''.join(str(c) for c in self.children)
             output += '\n</%s>' % self.name
         else:
-            output += ' />'
+            output += '>'
         return output
 
     def __repr__(self):
@@ -134,10 +127,14 @@ class Element:
 
 class RootElement(Element):
     def __init__(self):
-        super(RootElement, self).__init__(None, ())
+        super().__init__(None, ())
 
     def __str__(self):
         return ''.join(str(c) for c in self.children)
+
+
+class HTMLParseError(Exception):
+    pass
 
 
 class Parser(HTMLParser):
@@ -147,7 +144,7 @@ class Parser(HTMLParser):
     )
 
     def __init__(self):
-        HTMLParser.__init__(self)
+        super().__init__(convert_charrefs=False)
         self.root = RootElement()
         self.open_tags = []
         self.element_positions = {}
@@ -214,7 +211,7 @@ class Parser(HTMLParser):
 
 def parse_html(html):
     """
-    Takes a string that contains *valid* HTML and turns it into a Python object
+    Take a string that contains *valid* HTML and turn it into a Python object
     structure that can be easily compared against other HTML on semantic
     equivalence. Syntactical differences like which quotation is used on
     arguments will be ignored.

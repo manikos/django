@@ -16,8 +16,6 @@ from django.views.decorators.debug import (
     sensitive_post_parameters, sensitive_variables,
 )
 
-from . import BrokenException, except_args
-
 
 def index_page(request):
     """Dummy index page"""
@@ -70,28 +68,16 @@ class Http404View(View):
         raise Http404("Testing class-based technical 404.")
 
 
-def view_exception(request, n):
-    raise BrokenException(except_args[int(n)])
-
-
-def template_exception(request, n):
-    return render(request, 'debug/template_exception.html', {'arg': except_args[int(n)]})
+def template_exception(request):
+    return render(request, 'debug/template_exception.html')
 
 
 def jsi18n(request):
     return render(request, 'jsi18n.html')
 
 
-def old_jsi18n(request):
-    return render(request, 'old_jsi18n.html')
-
-
 def jsi18n_multi_catalogs(request):
     return render(request, 'jsi18n-multi-catalogs.html')
-
-
-def old_jsi18n_multi_catalogs(request):
-    return render(request, 'old_jsi18n-multi-catalogs.html')
 
 
 def raises_template_does_not_exist(request, path='i_dont_exist.html'):

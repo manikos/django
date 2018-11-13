@@ -19,63 +19,40 @@ Sample usage:
 ...     feed.write(fp, 'utf-8')
 
 For definitions of the different versions of RSS, see:
-http://web.archive.org/web/20110718035220/http://diveintomark.org/archives/2004/02/04/incompatible-rss
+https://web.archive.org/web/20110718035220/http://diveintomark.org/archives/2004/02/04/incompatible-rss
 """
 import datetime
+import email
 from io import StringIO
 from urllib.parse import urlparse
 
-from django.utils import datetime_safe
-from django.utils.encoding import force_text, iri_to_uri
+from django.utils.encoding import iri_to_uri
 from django.utils.timezone import utc
 from django.utils.xmlutils import SimplerXMLGenerator
 
 
 def rfc2822_date(date):
-    # We can't use strftime() because it produces locale-dependent results, so
-    # we have to map english month and day names manually
-    months = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',)
-    days = ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
-    # Support datetime objects older than 1900
-    date = datetime_safe.new_datetime(date)
-    # We do this ourselves to be timezone aware, email.Utils is not tz aware.
-    dow = days[date.weekday()]
-    month = months[date.month - 1]
-    time_str = date.strftime('%s, %%d %s %%Y %%H:%%M:%%S ' % (dow, month))
-    offset = date.utcoffset()
-    # Historically, this function assumes that naive datetimes are in UTC.
-    if offset is None:
-        return time_str + '-0000'
-    else:
-        timezone = (offset.days * 24 * 60) + (offset.seconds // 60)
-        hour, minute = divmod(timezone, 60)
-        return time_str + '%+03d%02d' % (hour, minute)
+    if not isinstance(date, datetime.datetime):
+        date = datetime.datetime.combine(date, datetime.time())
+    return email.utils.format_datetime(date)
 
 
 def rfc3339_date(date):
-    # Support datetime objects older than 1900
-    date = datetime_safe.new_datetime(date)
-    time_str = date.strftime('%Y-%m-%dT%H:%M:%S')
-    offset = date.utcoffset()
-    # Historically, this function assumes that naive datetimes are in UTC.
-    if offset is None:
-        return time_str + 'Z'
-    else:
-        timezone = (offset.days * 24 * 60) + (offset.seconds // 60)
-        hour, minute = divmod(timezone, 60)
-        return time_str + '%+03d:%02d' % (hour, minute)
+    if not isinstance(date, datetime.datetime):
+        date = datetime.datetime.combine(date, datetime.time())
+    return date.isoformat() + ('Z' if date.utcoffset() is None else '')
 
 
 def get_tag_uri(url, date):
     """
-    Creates a TagURI.
+    Create a TagURI.
 
-    See http://web.archive.org/web/20110514113830/http://diveintomark.org/archives/2004/05/28/howto-atom-id
+    See https://web.archive.org/web/20110514113830/http://diveintomark.org/archives/2004/05/28/howto-atom-id
     """
     bits = urlparse(url)
     d = ''
     if date is not None:
-        d = ',%s' % datetime_safe.new_datetime(date).strftime('%Y-%m-%d')
+        d = ',%s' % date.strftime('%Y-%m-%d')
     return 'tag:%s%s:%s/%s' % (bits.hostname, d, bits.path, bits.fragment)
 
 
@@ -84,29 +61,25 @@ class SyndicationFeed:
     def __init__(self, title, link, description, language=None, author_email=None,
                  author_name=None, author_link=None, subtitle=None, categories=None,
                  feed_url=None, feed_copyright=None, feed_guid=None, ttl=None, **kwargs):
-        def to_unicode(s):
-            return force_text(s, strings_only=True)
-        if categories:
-            categories = [force_text(c) for c in categories]
-        if ttl is not None:
-            # Force ints to unicode
-            ttl = force_text(ttl)
+        def to_str(s):
+            return str(s) if s is not None else s
+        categories = categories and [str(c) for c in categories]
         self.feed = {
-            'title': to_unicode(title),
+            'title': to_str(title),
             'link': iri_to_uri(link),
-            'description': to_unicode(description),
-            'language': to_unicode(language),
-            'author_email': to_unicode(author_email),
-            'author_name': to_unicode(author_name),
+            'description': to_str(description),
+            'language': to_str(language),
+            'author_email': to_str(author_email),
+            'author_name': to_str(author_name),
             'author_link': iri_to_uri(author_link),
-            'subtitle': to_unicode(subtitle),
+            'subtitle': to_str(subtitle),
             'categories': categories or (),
             'feed_url': iri_to_uri(feed_url),
-            'feed_copyright': to_unicode(feed_copyright),
+            'feed_copyright': to_str(feed_copyright),
             'id': feed_guid or link,
-            'ttl': ttl,
+            'ttl': to_str(ttl),
+            **kwargs,
         }
-        self.feed.update(kwargs)
         self.items = []
 
     def add_item(self, title, link, description, author_email=None,
@@ -114,37 +87,31 @@ class SyndicationFeed:
                  unique_id=None, unique_id_is_permalink=None, categories=(),
                  item_copyright=None, ttl=None, updateddate=None, enclosures=None, **kwargs):
         """
-        Adds an item to the feed. All args are expected to be Python Unicode
-        objects except pubdate and updateddate, which are datetime.datetime
-        objects, and enclosures, which is an iterable of instances of the
-        Enclosure class.
+        Add an item to the feed. All args are expected to be strings except
+        pubdate and updateddate, which are datetime.datetime objects, and
+        enclosures, which is an iterable of instances of the Enclosure class.
         """
-        def to_unicode(s):
-            return force_text(s, strings_only=True)
-        if categories:
-            categories = [to_unicode(c) for c in categories]
-        if ttl is not None:
-            # Force ints to unicode
-            ttl = force_text(ttl)
-        item = {
-            'title': to_unicode(title),
+        def to_str(s):
+            return str(s) if s is not None else s
+        categories = categories and [to_str(c) for c in categories]
+        self.items.append({
+            'title': to_str(title),
             'link': iri_to_uri(link),
-            'description': to_unicode(description),
-            'author_email': to_unicode(author_email),
-            'author_name': to_unicode(author_name),
+            'description': to_str(description),
+            'author_email': to_str(author_email),
+            'author_name': to_str(author_name),
             'author_link': iri_to_uri(author_link),
             'pubdate': pubdate,
             'updateddate': updateddate,
-            'comments': to_unicode(comments),
-            'unique_id': to_unicode(unique_id),
+            'comments': to_str(comments),
+            'unique_id': to_str(unique_id),
             'unique_id_is_permalink': unique_id_is_permalink,
-            'enclosures': enclosures,
+            'enclosures': enclosures or (),
             'categories': categories or (),
-            'item_copyright': to_unicode(item_copyright),
-            'ttl': ttl,
-        }
-        item.update(kwargs)
-        self.items.append(item)
+            'item_copyright': to_str(item_copyright),
+            'ttl': to_str(ttl),
+            **kwargs,
+        })
 
     def num_items(self):
         return len(self.items)
@@ -177,14 +144,14 @@ class SyndicationFeed:
 
     def write(self, outfile, encoding):
         """
-        Outputs the feed in the given encoding to outfile, which is a file-like
+        Output the feed in the given encoding to outfile, which is a file-like
         object. Subclasses should override this.
         """
         raise NotImplementedError('subclasses of SyndicationFeed must provide a write() method')
 
     def writeString(self, encoding):
         """
-        Returns the feed in the given encoding as a string.
+        Return the feed in the given encoding as a string.
         """
         s = StringIO()
         self.write(s, encoding)
@@ -192,8 +159,8 @@ class SyndicationFeed:
 
     def latest_post_date(self):
         """
-        Returns the latest item's pubdate or updateddate. If no items
-        have either of these attributes this returns the current UTC date/time.
+        Return the latest item's pubdate or updateddate. If no items
+        have either of these attributes this return the current UTC date/time.
         """
         latest_date = None
         date_keys = ('updateddate', 'pubdate')
@@ -210,9 +177,9 @@ class SyndicationFeed:
 
 
 class Enclosure:
-    "Represents an RSS enclosure"
+    """An RSS enclosure"""
     def __init__(self, url, length, mime_type):
-        "All args are expected to be Python Unicode objects"
+        "All args are expected to be strings"
         self.length, self.mime_type = length, mime_type
         self.url = iri_to_uri(url)
 
@@ -271,7 +238,7 @@ class RssUserland091Feed(RssFeed):
 
 
 class Rss201rev2Feed(RssFeed):
-    # Spec: http://blogs.law.harvard.edu/tech/rss
+    # Spec: https://cyber.harvard.edu/rss/rss.html
     _version = "2.0"
 
     def add_item_elements(self, handler, item):

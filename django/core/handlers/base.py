@@ -3,8 +3,10 @@ import types
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured, MiddlewareNotUsed
+from django.core.signals import request_finished
 from django.db import connections, transaction
 from django.urls import get_resolver, set_urlconf
+from django.utils.log import log_response
 from django.utils.module_loading import import_string
 
 from .exception import convert_exception_to_response, get_exception_response
@@ -13,14 +15,10 @@ logger = logging.getLogger('django.request')
 
 
 class BaseHandler:
-
-    def __init__(self):
-        self._request_middleware = None
-        self._view_middleware = None
-        self._template_response_middleware = None
-        self._response_middleware = None
-        self._exception_middleware = None
-        self._middleware_chain = None
+    _view_middleware = None
+    _template_response_middleware = None
+    _exception_middleware = None
+    _middleware_chain = None
 
     def load_middleware(self):
         """
@@ -28,10 +26,8 @@ class BaseHandler:
 
         Must be called after the environment is fixed (see __call__ in subclasses).
         """
-        self._request_middleware = []
         self._view_middleware = []
         self._template_response_middleware = []
-        self._response_middleware = []
         self._exception_middleware = []
 
         handler = convert_exception_to_response(self._get_response)
@@ -89,10 +85,11 @@ class BaseHandler:
         if not getattr(response, 'is_rendered', True) and callable(getattr(response, 'render', None)):
             response = response.render()
 
-        if response.status_code == 404:
-            logger.warning(
-                'Not Found: %s', request.path,
-                extra={'status_code': 404, 'request': request},
+        if response.status_code >= 400:
+            log_response(
+                '%s: %s', response.reason_phrase, request.path,
+                response=response,
+                request=request,
             )
 
         return response
@@ -171,3 +168,11 @@ class BaseHandler:
             if response:
                 return response
         raise
+
+
+def reset_urlconf(sender, **kwargs):
+    """Reset the URLconf after each request is finished."""
+    set_urlconf(None)
+
+
+request_finished.connect(reset_urlconf)

@@ -8,15 +8,15 @@ from django.utils.encoding import force_bytes, force_text
 
 class Driver(GDALBase):
     """
-    Wraps a GDAL/OGR Data Source Driver.
+    Wrap a GDAL/OGR Data Source Driver.
     For more information, see the C API source code:
-    http://www.gdal.org/gdal_8h.html - http://www.gdal.org/ogr__api_8h.html
+    https://www.gdal.org/gdal_8h.html - https://www.gdal.org/ogr__api_8h.html
     """
 
     # Case-insensitive aliases for some GDAL/OGR Drivers.
     # For a complete list of original driver names see
-    # http://www.gdal.org/ogr_formats.html (vector)
-    # http://www.gdal.org/formats_list.html (raster)
+    # https://www.gdal.org/ogr_formats.html (vector)
+    # https://www.gdal.org/formats_list.html (raster)
     _alias = {
         # vector
         'esri': 'ESRI Shapefile',
@@ -33,7 +33,7 @@ class Driver(GDALBase):
 
     def __init__(self, dr_input):
         """
-        Initializes an GDAL/OGR driver on either a string or integer input.
+        Initialize an GDAL/OGR driver on either a string or integer input.
         """
         if isinstance(dr_input, str):
             # If a string name of the driver was passed in
@@ -73,7 +73,7 @@ class Driver(GDALBase):
     @classmethod
     def ensure_registered(cls):
         """
-        Attempts to register all the data source drivers.
+        Attempt to register all the data source drivers.
         """
         # Only register all if the driver counts are 0 (or else all drivers
         # will be registered over and over again)
@@ -85,13 +85,13 @@ class Driver(GDALBase):
     @classmethod
     def driver_count(cls):
         """
-        Returns the number of GDAL/OGR data source drivers registered.
+        Return the number of GDAL/OGR data source drivers registered.
         """
         return vcapi.get_driver_count() + rcapi.get_driver_count()
 
     @property
     def name(self):
         """
-        Returns description/name string for this driver.
+        Return description/name string for this driver.
         """
         return force_text(rcapi.get_driver_description(self.ptr))
